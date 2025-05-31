@@ -14,6 +14,8 @@ pydantic-settings = "^2.2.0" # Current stable
 anyio = "^4.3.0"       # Matches spec 4.x
 rapidfuzz = "^3.9.0"   # Matches spec 3.x (e.g. 3.9.1 is >3.0.0)
 structlog = "^24.1.0"  # Matches spec 24.x
+pandas = "^2.2.2"      # For DataFrame operations and Parquet support (Matches spec 2.x)
+pyarrow = "^16.1.0"    # For Parquet file format support with pandas
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"      # Current stable (e.g. 8.2.0)
