@@ -1,0 +1,81 @@
+name: Python Application CI
+
+on:
+  push:
+    branches: [ main ] # Or your default branch, e.g., master, develop
+  pull_request:
+    branches: [ main ] # Or your default branch
+
+jobs:
+  lint_and_test:
+    name: Lint, Type Check & Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11"] # Specify Python versions to test against
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1 # Maintained community action
+      with:
+        version: "1.8.2" # Match POETRY_VERSION in Dockerfile
+        virtualenvs-create: true # Recommended for CI to isolate environments
+        virtualenvs-in-project: true # Easier to cache and specify path
+
+    - name: Load cached venv
+      id: cached-poetry-dependencies
+      uses: actions/cache@v4
+      with:
+        path: .venv # Path to virtualenv directory (due to virtualenvs-in-project: true)
+        key: venv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}
+        restore-keys: |
+          venv-${{ runner.os }}-${{ matrix.python-version }}-
+
+    - name: Install dependencies
+      # Run poetry install if cache was not hit (dependencies are not restored)
+      if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+      run: poetry install --no-interaction --no-ansi # Install all dependencies including dev tools
+
+    - name: Activate virtual environment and run checks
+      # Subsequent steps need to run commands within the Poetry-managed environment.
+      # This can be done with `poetry run` or by activating the venv.
+      # For simplicity and clarity, `poetry run` is used for each command.
+      # If `virtualenvs-in-project: true`, the path to venv scripts is predictable: .venv/bin/
+      # Shell could be specified as `bash -l {0}` to make sourced scripts work, but `poetry run` is cleaner.
+      run: echo "Dependencies installed. Venv cached: ${{ steps.cached-poetry-dependencies.outputs.cache-hit }}"
+      # No direct activation needed if using `poetry run` for each step.
+
+    - name: Lint with Ruff
+      run: |
+        poetry run ruff check .
+        poetry run ruff format --check .
+      # Example of how to fail the job if ruff format suggests changes:
+      # poetry run ruff format --check . || (echo "Ruff format check failed. Run 'poetry run ruff format .' locally." && exit 1)
+
+    - name: Type check with MyPy
+      # Ensure mypy is configured in pyproject.toml to find sources (e.g., `packages = ["src"]`)
+      run: poetry run mypy src/
+      # Could also specify `poetry run mypy .` if all paths are configured, but specific is often better.
+
+    - name: Run tests with Pytest
+      run: poetry run pytest
+      # To pass secrets or environment variables for tests (e.g., integration tests):
+      # env:
+      #   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY_CI_TEST }}
+      #   # Ensure this secret is defined in your GitHub repository settings:
+      #   # Settings -> Secrets and variables -> Actions -> New repository secret
+      #   # For this project, tests should ideally mock external API calls.
+      #   # If some tests *require* an API key, they could be marked and skipped
+      #   # if the secret is not available, or run conditionally.
+      #   CI_MODE: "true" # Example environment variable for tests to detect CI environment
+      #   # For example, in conftest.py or a specific test:
+      #   # if os.getenv("CI_MODE") and not os.getenv("OPENROUTER_API_KEY"):
+      #   #    pytest.skip("Skipping integration test in CI due to missing API key secret")
