@@ -12,8 +12,14 @@ httpx = "^0.27.0"      # Matches current stable, post 1.0 features
 pydantic = "^2.7.0"    # Matches spec 2.x
 pydantic-settings = "^2.2.0" # Current stable
 anyio = "^4.3.0"       # Matches spec 4.x
+kaleido = "^0.2.1"     # For saving plotly figures as static images (e.g., .png)
+pandas = "^2.2.2"      # For DataFrame operations and Parquet support (Matches spec 2.x)
+plotly = "^5.20.0"     # For creating visualizations
+pyarrow = "^16.1.0"    # For Parquet file format support with pandas
 rapidfuzz = "^3.9.0"   # Matches spec 3.x (e.g. 3.9.1 is >3.0.0)
+streamlit = "^1.35.0"  # For creating web-based dashboards (Matches spec 1.x)
 structlog = "^24.1.0"  # Matches spec 24.x
+typer = {extras = ["all"], version = "^0.12.3"} # For CLI application
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"      # Current stable (e.g. 8.2.0)
@@ -21,6 +27,9 @@ pytest-asyncio = "^0.23.0" # Current stable (e.g. 0.23.7)
 pytest-httpx = "^0.29.0" # For mocking HTTPX requests
 ruff = "^0.4.0"        # Current stable (e.g. 0.4.4)
 mypy = "^1.9.0"        # Current stable
+
+[tool.poetry.scripts]
+hexe-bench = "src.cli:app"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

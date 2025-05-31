@@ -1,0 +1,80 @@
+# Git specific
+.git/
+.gitignore
+
+# Python specific
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+celerybeat-schedule.*
+
+# Virtual environment
+env/
+venv/
+.venv/
+ENV/
+# Mac specific
+.DS_Store
+
+# Poetry specific
+# poetry.lock is versioned, but no harm in excluding if it's ever in a context where it shouldn't be.
+# However, it's typically needed for `poetry install`.
+# .poetry/ # If poetry is installed locally in project
+
+# IDE specific
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test specific
+.pytest_cache/
+.coverage
+htmlcov/
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+TEST_RESULTS/
+
+# MyPy specific
+.mypy_cache/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+wheels/
+# Debian packaging
+deb_dist/
+
+# Runtime specific
+benchmarks_output/ # Don't include previous benchmark runs
+*.sqlite # Don't include databases by default
+*.sqlite-journal # SQLite journal files
+# Add other project-specific ignores if any
+# For example, if there are large data files not needed in the image:
+# data/raw_data/
+# data/interim_data/
+# notebooks/ # if notebooks are not part of the runnable app
+*.md # READMEs, etc. are not needed in the final image unless used by the app
+# Keep .md files for now, as prompts are .md
+# However, if prompts are packaged with `src`, then this could be broader.
+# For now, be specific about outputs.
+# If there are .env files with secrets, they should be here too,
+# but secrets are better handled via Docker secrets or build-time env vars.
+.env
+*.env.*
+!src/prompts/*.md # Ensure prompts are included if they are needed and outside package data
+
+# Specific log files if any are generated in project root
+app.log
+debug.log
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
