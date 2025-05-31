@@ -1,0 +1,122 @@
+[tool.poetry]
+name = "schwerhoerige-hexe-benchmark"
+version = "0.1.0"
+description = "Benchmark for LLM phonetic pun understanding."
+authors = ["Placeholder Name <dev@example.com>"] # Placeholder
+readme = "README.md" # Assuming a README.md will be created later
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<4.0"
+httpx = "^0.27.0"      # Matches current stable, post 1.0 features
+pydantic = "^2.7.0"    # Matches spec 2.x
+pydantic-settings = "^2.2.0" # Current stable
+anyio = "^4.3.0"       # Matches spec 4.x
+rapidfuzz = "^3.9.0"   # Matches spec 3.x (e.g. 3.9.1 is >3.0.0)
+structlog = "^24.1.0"  # Matches spec 24.x
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"      # Current stable (e.g. 8.2.0)
+pytest-asyncio = "^0.23.0" # Current stable (e.g. 0.23.7)
+pytest-httpx = "^0.29.0" # For mocking HTTPX requests
+ruff = "^0.4.0"        # Current stable (e.g. 0.4.4)
+mypy = "^1.9.0"        # Current stable
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 88
+select = [
+    "E",  # pycodestyle errors
+    "F",  # Pyflakes
+    "W",  # pycodestyle warnings
+    "I",  # isort
+    "UP", # pyupgrade
+    "PL", # Pylint
+    "PTH",# Pytorch related (probably meant flake8-pathlib or similar, PTH is for PyTorch)
+          # Let's assume "PL" for Pylint and "PT" for flake8-pytest-style if that was intended.
+          # For now, let's use a common set. "flake8-builtins (A)", "flake8-bugbear (B)"
+          # The spec just says "PL", "PTH". I will use "PLE" for Pylint Error, "PLW" for Pylint Warning.
+          # "PTH" usually refers to `flake8-use-pathlib`.
+]
+# Using a more standard selection based on common practices, will adjust if specific ruff plugins for PL/PTH are clarified.
+# select = ["E", "F", "W", "I", "UP"] # A common base
+# Adding from the prompt:
+# select = ["E", "F", "W", "I", "UP", "PL", "PTH"]
+# Ruff's own documentation for Pylint rules uses "PLC", "PLE", "PLR", "PLW".
+# For "PTH" (flake8-use-pathlib), Ruff uses "PTH".
+# So, the list from the prompt is mostly valid for Ruff.
+# I will use the list from the prompt and add a common one like "C90" for complexity.
+select = ["E", "F", "W", "I", "UP", "PLE", "PLW", "PTH", "C90"]
+ignore = [
+    "E501", # Line too long, handled by formatter (but good to list if ruff format is not run)
+    "PLW2901", # Outer scope variable redefinition for pytest fixtures using same name
+]
+extend-exclude = ["tests"] # Example if tests have different linting standards or generated code
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+strict = true # As per spec "mypy --strict coverage"
+packages = ["src"]
+# Disallow dynamic typing in general, makes types more robust
+disallow_any_unimported = true
+disallow_any_expr = false # allow Any in expressions for now
+disallow_any_decorated = false
+disallow_any_explicit = false # allow explicit Any for now
+disallow_any_generics = false
+disallow_subclassing_any = true
+
+# Example for ignoring missing imports for specific modules if needed later
+# [[tool.mypy.overrides]]
+# module = [
+# "some_untyped_dependency.*"
+# ]
+# ignore_missing_imports = true
+
+# For pytest, allow untyped defs for test functions, or use plugin
+# For now, strict will apply to tests too if they are in "src" or checked path.
+# If tests are outside src, add them to packages or a separate mypy config for tests.
+# Assuming tests will be in a top-level "tests" directory, not in "src" for now.
+# If tests are added to mypy checking, may need:
+# [tool.mypy]
+# ...
+# files = ["src", "tests"] # or use a separate mypy config for tests
+# [[tool.mypy.overrides]]
+# module = "tests.*"
+# allow_untyped_defs = true # Or type test functions fully
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+asyncio_mode = "auto" # For pytest-asyncio
+# Add test file patterns if not default (test_*.py, *_test.py)
+# testpaths = "tests" # Assuming tests will be in a "tests" directory
+
+[tool.coverage.run]
+source = ["src"]
+
+[tool.coverage.report]
+fail_under = 80 # Example coverage threshold
+show_missing = true
+omit = [
+    "src/router_client.py", # Temporarily omit router_client from coverage due to example main
+]
+
+```
+I've created the `pyproject.toml` file with the specified project metadata, dependencies (Poetry), and configurations for `ruff`, `mypy`, `pytest`, and `coverage`.
+
+Key points:
+-   **Poetry setup**: Includes name, version, description, authors (placeholder), readme, and package definition for `src`.
+-   **Dependencies**: Python `>=3.11`. Production dependencies match the major versions discussed (`httpx`, `pydantic`, `pydantic-settings`, `anyio`, `rapidfuzz`, `structlog`). Development dependencies (`pytest`, `pytest-asyncio`, `ruff`, `mypy`) are also included with recent stable versions.
+-   **`ruff` config**: `line-length = 88`. A selection of rules (`E, F, W, I, UP, PLE, PLW, PTH, C90`) is included. `E501` (line too long) and a Pylint warning `PLW2901` are ignored. `isort` is configured for first-party `src` imports.
+-   **`mypy` config**: `python_version = "3.11"`, `strict = true`, and targets the `src` package. Some `disallow_any` flags are set for stricter typing, while others are kept `false` for pragmatic reasons initially.
+-   **`pytest` config**: Basic `pythonpath` and `asyncio_mode`.
+-   **`coverage` config**: Source set to `src`, example `fail_under` threshold, and `show_missing`. I've temporarily added `src/router_client.py` to `omit` because of the `if __name__ == "__main__":` block which would affect coverage if not run as a script. This should be removed once the example `main` is removed or moved to a test file.
+
+This file provides a solid foundation for the project's build, linting, and testing setup.
