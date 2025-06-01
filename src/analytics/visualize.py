@@ -1,7 +1,7 @@
 import logging
 import sqlite3
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -47,6 +47,104 @@ def _fetch_data_from_db(conn: sqlite3.Connection, run_id: Optional[str] = None) 
         return pd.DataFrame() # Return empty DataFrame on error
     except Exception as e:
         logger.error(f"An unexpected error occurred while fetching data from DB: {e}", exc_info=True)
+        return pd.DataFrame()
+
+
+def fetch_all_run_data(available_runs_with_paths: List[Tuple[str, str]]) -> pd.DataFrame:
+    """
+    Fetches data from all specified benchmark runs and concatenates them into a single DataFrame.
+    """
+    logger.info(f"Starting to fetch data for {len(available_runs_with_paths)} benchmark runs.")
+    all_records_dfs: List[pd.DataFrame] = []
+
+    for run_id, run_dir_path_str in available_runs_with_paths:
+        logger.debug(f"Processing run: {run_id} from path: {run_dir_path_str}")
+        db_path = Path(run_dir_path_str) / f"{run_id}_benchmark_data.sqlite"
+
+        conn: Optional[sqlite3.Connection] = None
+        try:
+            conn = _get_db_connection(str(db_path))
+            if conn:
+                logger.info(f"Successfully connected to DB for run {run_id} at {db_path}")
+                # Pass run_id to _fetch_data_from_db to ensure 'run_id' column is consistent
+                # if _fetch_data_from_db adds it or uses it for filtering.
+                # Assuming 'run_id' in the DB is the source of truth for that particular DB.
+                run_df = _fetch_data_from_db(conn, run_id)
+
+                if not run_df.empty:
+                    # It's good practice to ensure the run_id column is present,
+                    # especially if _fetch_data_from_db might not always add it
+                    # or if data could theoretically miss it.
+                    # However, _fetch_data_from_db's current implementation implies run_id is part of the select if provided.
+                    # If run_id is not in run_df.columns, and we trust the run_id variable, we can add it:
+                    # if 'run_id' not in run_df.columns:
+                    #    run_df['run_id'] = run_id
+                    all_records_dfs.append(run_df)
+                    logger.info(f"Fetched {len(run_df)} records for run {run_id}.")
+                else:
+                    logger.info(f"No records found for run {run_id} in {db_path}.")
+            else:
+                logger.error(f"Failed to get DB connection for run {run_id} at {db_path}. Skipping this run.")
+                # No need to close conn here as it would be None
+
+        except Exception as e:
+            logger.error(f"An unexpected error occurred while processing run {run_id} from {db_path}: {e}", exc_info=True)
+            # Ensure connection is closed if it was opened before the error
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                    logger.debug(f"Closed DB connection for run {run_id}.")
+                except sqlite3.Error as e:
+                    logger.error(f"Error closing DB connection for run {run_id}: {e}", exc_info=True)
+
+
+    if not all_records_dfs:
+        logger.info("No dataframes to concatenate. Returning empty DataFrame.")
+        return pd.DataFrame()
+
+    try:
+        combined_df = pd.concat(all_records_dfs, ignore_index=True)
+        logger.info(f"Successfully concatenated {len(all_records_dfs)} DataFrames into one with {len(combined_df)} total records.")
+        return combined_df
+    except Exception as e:
+        logger.error(f"Error concatenating DataFrames: {e}", exc_info=True)
+        return pd.DataFrame()
+
+
+def calculate_global_leaderboard(all_data_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculates a global leaderboard by averaging 'gesamt' scores per 'model'
+    from the combined data of all runs.
+    """
+    logger.info("Calculating global leaderboard...")
+    if all_data_df.empty:
+        logger.warning("Input DataFrame 'all_data_df' is empty. Cannot calculate leaderboard.")
+        return pd.DataFrame()
+
+    required_columns = ['model', 'gesamt']
+    if not all(col in all_data_df.columns for col in required_columns):
+        logger.error(f"Required columns missing from DataFrame. Expected: {required_columns}, Got: {all_data_df.columns.tolist()}. Cannot calculate leaderboard.")
+        return pd.DataFrame()
+
+    try:
+        # Ensure 'gesamt' is numeric, coercing errors to NaN
+        all_data_df['gesamt'] = pd.to_numeric(all_data_df['gesamt'], errors='coerce')
+
+        # Drop rows where 'gesamt' became NaN after coercion, as they cannot be used in mean calculation
+        valid_scores_df = all_data_df.dropna(subset=['gesamt'])
+        if valid_scores_df.empty:
+            logger.warning("No valid 'gesamt' scores available after filtering NaNs. Cannot calculate leaderboard.")
+            return pd.DataFrame()
+
+        leaderboard_df = valid_scores_df.groupby('model')['gesamt'].mean().reset_index()
+        leaderboard_df = leaderboard_df.rename(columns={'gesamt': 'average_gesamt_score'})
+        leaderboard_df = leaderboard_df.sort_values(by='average_gesamt_score', ascending=False).reset_index(drop=True)
+
+        logger.info(f"Successfully calculated global leaderboard with {len(leaderboard_df)} models.")
+        return leaderboard_df
+    except Exception as e:
+        logger.error(f"An error occurred during leaderboard calculation: {e}", exc_info=True)
         return pd.DataFrame()
 
 
