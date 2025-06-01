@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 class RouterClient:
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.client = httpx.AsyncClient(timeout=httpx.Timeout(connect=5.0, read=90.0))
+        self.client = httpx.AsyncClient(timeout=httpx.Timeout(connect=5.0, read=90.0, write=90.0, pool=5.0))
         self.base_url = "https://openrouter.ai/api/v1"
         self.cumulative_cost_usd: float = 0.0
         self.model_semaphores: Dict[str, anyio.Semaphore] = {}
