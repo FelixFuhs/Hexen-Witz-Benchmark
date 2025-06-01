@@ -43,6 +43,57 @@ def get_available_run_ids(base_benchmark_dir_str: str = "benchmarks_output") -> 
     return sorted(available_runs, reverse=True) # Show most recent (if timestamped naming) first
 
 
+def create_leaderboard_df(records_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Creates a leaderboard DataFrame from the records_df, summarizing model performance.
+
+    Args:
+        records_df: DataFrame containing benchmark records with 'model', 'gesamt',
+                    and optionally 'phonetische_aehnlichkeit' columns.
+
+    Returns:
+        A pandas DataFrame for the leaderboard, sorted by 'Average Gesamt Score',
+        or an empty DataFrame if input is invalid, has missing required columns, or any error occurs.
+    """
+    if records_df.empty:
+        return pd.DataFrame()
+
+    required_cols = ['model', 'gesamt']
+    if not all(col in records_df.columns for col in required_cols):
+        return pd.DataFrame()
+
+    try:
+        leaderboard_df = records_df.groupby('model').agg(
+            num_runs=('model', 'count'),
+            avg_gesamt_score=('gesamt', 'mean')
+        )
+
+        if 'phonetische_aehnlichkeit' in records_df.columns:
+            phon_avg_series = records_df.groupby('model')['phonetische_aehnlichkeit'].mean()
+            leaderboard_df['Average Phonetische Ähnlichkeit Score'] = phon_avg_series
+
+        leaderboard_df = leaderboard_df.sort_values(by='avg_gesamt_score', ascending=False)
+        leaderboard_df = leaderboard_df.reset_index()
+
+        rename_map = {
+            'model': 'Model Name',
+            'num_runs': 'Number of Runs',
+            'avg_gesamt_score': 'Average Gesamt Score'
+        }
+        leaderboard_df = leaderboard_df.rename(columns=rename_map)
+
+        final_columns = ['Model Name', 'Number of Runs', 'Average Gesamt Score']
+        if 'Average Phonetische Ähnlichkeit Score' in leaderboard_df.columns:
+            final_columns.append('Average Phonetische Ähnlichkeit Score')
+
+        leaderboard_df = leaderboard_df[[col for col in final_columns if col in leaderboard_df.columns]]
+
+        return leaderboard_df
+
+    except Exception:
+        return pd.DataFrame()
+
+
 def main_dashboard():
     """
     Main function to render the Streamlit dashboard.
@@ -112,6 +163,15 @@ def main_dashboard():
                     st.dataframe(records_df.head(100), use_container_width=True)
             else:
                 st.warning("No records found in the database for this run.")
+
+        # --- Leaderboard Section ---
+        st.subheader("🏆 Model Performance Leaderboard for this Run")
+        leaderboard_df = create_leaderboard_df(records_df)
+        if not leaderboard_df.empty:
+            st.dataframe(leaderboard_df, use_container_width=True)
+        else:
+            st.info("No data available to build leaderboard for this run. This could be due to missing data or an issue in processing.")
+
         except Exception as e:
             st.error(f"Error loading data from database: {e}")
             logger.error(f"DB Error for {selected_run_id}: {e}", exc_info=True)
