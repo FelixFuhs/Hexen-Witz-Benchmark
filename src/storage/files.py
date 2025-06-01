@@ -2,11 +2,11 @@ import json
 import csv
 import logging
 from pathlib import Path
-from datetime import datetime, timezone # Ensure timezone is available
+from datetime import datetime, timezone 
 from typing import Dict, Any
 
 from src.models import GenerationResult, BenchmarkRecord
-from src.config import Settings # For typing config_settings if needed, or use Dict
+from src.config import Settings 
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ def ensure_dir_structure(run_id: str, base_path_str: str = "benchmarks") -> Path
         return run_path
     except OSError as e:
         logger.error(f"Failed to create directory structure for {run_id} at {run_path}: {e}")
-        raise # Re-raise to indicate failure at a higher level if needed
+        raise 
 
 
 def save_generation_result(result: GenerationResult, run_id: str, base_path_str: str = "benchmarks") -> None:
@@ -43,9 +43,8 @@ def save_generation_result(result: GenerationResult, run_id: str, base_path_str:
         return
 
     raw_path = run_path / "raw"
-    # Sanitize model name for filename, replacing '/' with '_'
     safe_model_name = result.model.replace('/', '_')
-    file_name = f"{safe_model_name}_{result.run}.json" # Format: <model_sanitized>_<run_num>.json
+    file_name = f"{safe_model_name}_{result.run}.json" 
     file_path = raw_path / file_name
 
     try:
@@ -53,7 +52,6 @@ def save_generation_result(result: GenerationResult, run_id: str, base_path_str:
             f.write(result.model_dump_json(indent=2))
         logger.info(f"Saved GenerationResult to {file_path}")
 
-        # After saving, append to cost report
         _append_generation_cost_to_report(result, run_id, base_path_str)
 
     except IOError as e:
@@ -72,8 +70,7 @@ def save_benchmark_record(record: BenchmarkRecord, run_id: str, base_path_str: s
 
     judged_path = run_path / "judged"
     safe_model_name = record.generation.model.replace('/', '_')
-    # Filename consistent with GenerationResult, but in 'judged' folder
-    file_name = f"{safe_model_name}_{record.generation.run}.json" # Format: <model_sanitized>_<run_num>.json
+    file_name = f"{safe_model_name}_{record.generation.run}.json" 
     file_path = judged_path / file_name
 
     try:
@@ -94,13 +91,12 @@ def _append_generation_cost_to_report(
     This is an internal helper called by save_generation_result.
     """
     try:
-        # ensure_dir_structure should have been called by the caller (save_generation_result)
         run_path = Path(base_path_str) / run_id
-        if not run_path.exists(): # Should not happen if called from save_generation_result
+        if not run_path.exists(): 
              logger.warning(f"Run path {run_path} does not exist for cost report. Attempting to create.")
              ensure_dir_structure(run_id, base_path_str)
 
-    except OSError: # If ensure_dir_structure fails even in the warning block
+    except OSError: 
         logger.error(f"Cannot append to cost report for run_id {run_id} due to directory issue.")
         return
 
@@ -118,11 +114,10 @@ def _append_generation_cost_to_report(
                 run_id,
                 result.model,
                 result.run,
-                f"{result.cost_usd:.8f}", # Format cost to a consistent number of decimal places
+                f"{result.cost_usd:.8f}", 
                 result.prompt_tokens,
                 result.completion_tokens
             ])
-        # logger.debug(f"Appended to cost report: {report_path} for model {result.model} run {result.run}")
     except IOError as e:
         logger.error(f"Failed to append to cost report {report_path}: {e}")
     except Exception as e:
@@ -141,16 +136,14 @@ def write_meta_json(
 
     meta_path = run_path / "meta.json"
 
-    # Ensure config_settings are serializable (e.g. convert Pydantic models to dicts)
     serializable_config = {}
     for k, v in config_settings.items():
-        if hasattr(v, 'model_dump'): # Check for Pydantic model
+        if hasattr(v, 'model_dump'): 
             serializable_config[k] = v.model_dump()
         elif isinstance(v, (str, int, float, bool, list, dict, type(None))):
             serializable_config[k] = v
         else:
             try:
-                # Attempt to convert to string as a fallback for other types
                 serializable_config[k] = str(v)
                 logger.warning(f"Configuration value for key '{k}' was converted to string for meta.json serialization.")
             except Exception:
@@ -162,7 +155,6 @@ def write_meta_json(
         "run_id": run_id,
         "creation_timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "config_settings": serializable_config,
-        # Checksums placeholder: "checksums": {"benchmark_prompt.md": "sha256_hash_here", ...}
     }
 
     try:
@@ -171,27 +163,20 @@ def write_meta_json(
         logger.info(f"Saved meta.json to {meta_path}")
     except IOError as e:
         logger.error(f"Failed to save meta.json to {meta_path}: {e}")
-    except TypeError as e: # If json.dump fails due to non-serializable data not caught above
+    except TypeError as e: 
         logger.error(f"Failed to serialize data for meta.json: {e}. Data: {data_to_write}", exc_info=True)
     except Exception as e:
         logger.error(f"Unexpected error saving meta.json to {meta_path}: {e}", exc_info=True)
 
-# Example usage (for testing, can be removed or moved to a test file)
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-    # Dummy data for testing
     test_run_id = f"test_run_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
-    # Test ensure_dir_structure implicitly via other functions
-    # run_directory = ensure_dir_structure(test_run_id)
-    # print(f"Run directory created at: {run_directory}")
-
-    # Test save_generation_result (which also tests _append_generation_cost_to_report)
     sample_gen_result = GenerationResult(
         model="test_model/v1",
         run=1,
-        summary=None, # Optional
+        summary=None, 
         full_response="This is a test response.",
         prompt_tokens=10,
         completion_tokens=5,
@@ -202,7 +187,7 @@ if __name__ == "__main__":
 
     sample_gen_result_run2 = GenerationResult(
         model="another_model/v2",
-        run=2, # Changed run number
+        run=2, 
         summary=None,
         full_response="Another test response.",
         prompt_tokens=15,
@@ -212,9 +197,7 @@ if __name__ == "__main__":
     )
     save_generation_result(sample_gen_result_run2, test_run_id)
 
-
-    # Test save_benchmark_record
-    from src.models import JudgeScore, Summary # Need these for BenchmarkRecord
+    from src.models import JudgeScore, Summary 
     sample_judge_score = JudgeScore(
         phonetische_aehnlichkeit=10,
         anzueglichkeit=5,
@@ -225,12 +208,11 @@ if __name__ == "__main__":
         flags=[]
     )
     sample_benchmark_record = BenchmarkRecord(
-        generation=sample_gen_result, # Use the first gen result
+        generation=sample_gen_result, 
         judge=sample_judge_score
     )
     save_benchmark_record(sample_benchmark_record, test_run_id)
 
-    # Test write_meta_json
     class DummyNonSerializable:
         pass
 
@@ -240,8 +222,8 @@ if __name__ == "__main__":
         "temperature": 0.7,
         "judge_llm": "judge_model/v1",
         "max_budget": 100.0,
-        "complex_setting": Settings(OPENROUTER_API_KEY="dummy", MAX_BUDGET_USD=50.0), # Pydantic model
-        "non_serializable_item": DummyNonSerializable() # Test non-serializable
+        "complex_setting": Settings(OPENROUTER_API_KEY="dummy", MAX_BUDGET_USD=50.0), 
+        "non_serializable_item": DummyNonSerializable() 
     }
     write_meta_json(test_run_id, sample_config)
 
@@ -250,13 +232,3 @@ if __name__ == "__main__":
     print(f"Check benchmarks/{test_run_id}/judged/ for benchmark records.")
     print(f"Check benchmarks/{test_run_id}/cost_report.csv for cost details.")
     print(f"Check benchmarks/{test_run_id}/meta.json for run metadata.")
-```
-
-A few notes on the implementation:
-- `ensure_dir_structure` is called at the beginning of each save function to ensure the directories exist. It re-raises `OSError` if creation fails, which the save functions then catch and log.
-- Filenames for `GenerationResult` and `BenchmarkRecord` are made more descriptive and include sanitization of model names (replacing `/` with `_`).
-- `_append_generation_cost_to_report` is now an internal helper, called by `save_generation_result` after successfully saving the result. It also formats the cost to a fixed number of decimal places in the CSV.
-- `write_meta_json` now includes a basic attempt to make `config_settings` serializable, converting Pydantic models to dicts and other types to strings as a fallback. Non-serializable items that can't be converted will be marked.
-- The `if __name__ == "__main__":` block provides a basic test scenario for all functions.
-
-This structure should meet the requirements for Phase 5.1. I'll now submit the report.
