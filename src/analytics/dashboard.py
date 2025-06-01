@@ -1,247 +1,241 @@
-import streamlit as st
-from pathlib import Path
 import logging
+import sqlite3
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+
 import pandas as pd
-import sqlite3 # Keep for type hinting Optional[sqlite3.Connection]
-from typing import List, Optional
+import plotly.graph_objects as go
+import plotly.express as px
 
-# Assuming src.analytics.visualize has the necessary functions
-from src.analytics import visualize
-# If _get_db_connection and _fetch_data_from_db are specific to visualize and not general storage helpers,
-# it's fine to use them via visualize module.
-
-# Setup Logger
-# Streamlit apps often manage their own logging, but it's good practice for modules.
-# However, direct Streamlit pages usually don't need a module-level logger like this
-# unless there's complex non-UI logic within them. For now, this is fine.
 logger = logging.getLogger(__name__)
-# Basic logging config for when this module's functions might be called outside Streamlit context
-# or for debugging. Streamlit's own logging might override or supplement this when run via `streamlit run`.
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-
-def get_available_run_ids(base_benchmark_dir_str: str = "benchmarks_output") -> List[str]:
+def _get_db_connection(db_path_str: str) -> Optional[sqlite3.Connection]:
     """
-    Scans the base benchmark directory for available run_ids.
-    A directory is considered a valid run if it contains the expected SQLite DB file.
+    Establishes a read-only connection to the SQLite database.
     """
-    base_path = Path(base_benchmark_dir_str)
-    if not base_path.exists() or not base_path.is_dir():
-        logger.warning(f"Base benchmark directory '{base_benchmark_dir_str}' not found or not a directory.")
-        return []
+    db_path = Path(db_path_str)
+    if not db_path.exists():
+        logger.error(f"Database file not found at {db_path_str}")
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{db_path_str}?mode=ro", uri=True)
+        logger.info(f"Read-only SQLite connection established to {db_path_str}")
+        return conn
+    except sqlite3.Error as e:
+        logger.error(f"Error connecting to SQLite database {db_path_str} in read-only mode: {e}", exc_info=True)
+        return None
 
-    available_runs = []
-    for d in base_path.iterdir():
-        if d.is_dir():
-            # Check for the presence of the SQLite DB file to qualify as a run directory
-            db_file = d / f"{d.name}_benchmark_data.sqlite"
-            if db_file.exists() and db_file.is_file():
-                available_runs.append(d.name)
-            else:
-                logger.debug(f"Directory {d.name} skipped, missing DB file {db_file.name}")
-
-    return sorted(available_runs, reverse=True) # Show most recent (if timestamped naming) first
-
-
-def create_leaderboard_df(records_df: pd.DataFrame) -> pd.DataFrame:
+def _fetch_data_from_db(conn: sqlite3.Connection, run_id: Optional[str] = None) -> pd.DataFrame:
     """
-    Creates a leaderboard DataFrame from the records_df, summarizing model performance.
-
-    Args:
-        records_df: DataFrame containing benchmark records with 'model', 'gesamt',
-                    and optionally 'phonetische_aehnlichkeit' columns.
-
-    Returns:
-        A pandas DataFrame for the leaderboard, sorted by 'Average Gesamt Score',
-        or an empty DataFrame if input is invalid, has missing required columns, or any error occurs.
+    Fetches data from the 'records' table into a Pandas DataFrame.
+    Filters by run_id if provided.
     """
-    if records_df.empty:
-        return pd.DataFrame()
-
-    required_cols = ['model', 'gesamt']
-    if not all(col in records_df.columns for col in required_cols):
-        return pd.DataFrame()
+    query = "SELECT * FROM records"
+    params: Optional[tuple] = None
+    if run_id:
+        query += " WHERE run_id = ?"
+        params = (run_id,)
 
     try:
-        leaderboard_df = records_df.groupby('model').agg(
-            num_runs=('model', 'count'),
-            avg_gesamt_score=('gesamt', 'mean')
-        )
-
-        if 'phonetische_aehnlichkeit' in records_df.columns:
-            phon_avg_series = records_df.groupby('model')['phonetische_aehnlichkeit'].mean()
-            leaderboard_df['Average Phonetische Ähnlichkeit Score'] = phon_avg_series
-
-        leaderboard_df = leaderboard_df.sort_values(by='avg_gesamt_score', ascending=False)
-        leaderboard_df = leaderboard_df.reset_index()
-
-        rename_map = {
-            'model': 'Model Name',
-            'num_runs': 'Number of Runs',
-            'avg_gesamt_score': 'Average Gesamt Score'
-        }
-        leaderboard_df = leaderboard_df.rename(columns=rename_map)
-
-        final_columns = ['Model Name', 'Number of Runs', 'Average Gesamt Score']
-        if 'Average Phonetische Ähnlichkeit Score' in leaderboard_df.columns:
-            final_columns.append('Average Phonetische Ähnlichkeit Score')
-
-        leaderboard_df = leaderboard_df[[col for col in final_columns if col in leaderboard_df.columns]]
-
-        return leaderboard_df
-
-    except Exception:
+        df = pd.read_sql_query(query, conn, params=params)
+        logger.info(f"Fetched {len(df)} records from DB" + (f" for run_id {run_id}" if run_id else ""))
+        return df
+    except pd.io.sql.DatabaseError as e: 
+        logger.error(f"Error fetching data from 'records' table: {e}. "
+                     "This might happen if the table doesn't exist or the DB is corrupted.", exc_info=True)
+        return pd.DataFrame() 
+    except Exception as e:
+        logger.error(f"An unexpected error occurred while fetching data from DB: {e}", exc_info=True)
         return pd.DataFrame()
 
 
-def main_dashboard():
+def create_scores_boxplot(df: pd.DataFrame, score_column: str = 'gesamt', title_prefix: str = '') -> Optional[go.Figure]:
     """
-    Main function to render the Streamlit dashboard.
+    Creates a boxplot of scores by model from the given DataFrame.
     """
-    st.set_page_config(page_title="Schwerhörige-Hexe Benchmark Dashboard", layout="wide")
-    st.title("Schwerhörige-Hexe Benchmark Dashboard")
+    if df.empty:
+        logger.warning(f"DataFrame is empty, cannot generate boxplot for score '{score_column}'.")
+        return None
+    if score_column not in df.columns:
+        logger.warning(f"Score column '{score_column}' not found in DataFrame. Available: {df.columns.tolist()}")
+        return None
+    if 'model' not in df.columns:
+        logger.warning(f"Model column 'model' not found in DataFrame. Available: {df.columns.tolist()}")
+        return None
 
-    # --- Sidebar for Run Selection ---
-    st.sidebar.header("Run Selection")
-
-    # Allow user to specify base benchmark directory - useful if multiple benchmark sets exist
-    # For simplicity now, hardcoding, but could be an st.text_input in sidebar
-    base_dir_for_runs = "benchmarks_output"
-
-    available_runs = get_available_run_ids(base_dir_for_runs)
-
-    if not available_runs:
-        st.sidebar.warning(f"No benchmark runs found in '{Path(base_dir_for_runs).resolve()}/'. "
-                           "Ensure benchmark runs have completed and produced output including the SQLite DB.")
-        st.info("How to get started:", icon="🚀")
-        st.markdown(
-            """
-            1. Run a benchmark using the CLI: `hexe-bench run --model <your-model> -n <num-runs>`
-            2. Ensure the output directory (default: `benchmarks_output/`) contains subdirectories for each run.
-            3. Each run directory should have a `..._benchmark_data.sqlite` file.
-            """
+    try:
+        fig = px.box(
+            df,
+            x='model',
+            y=score_column,
+            color='model',
+            title=f"{title_prefix}Scores Distribution by Model ({score_column})",
+            points='all', 
+            labels={'model': 'Model', score_column: score_column.replace('_', ' ').title()}
         )
-        st.stop() # Stop execution if no runs are available to select
+        fig.update_layout(
+            xaxis_title="Model",
+            yaxis_title=score_column.replace('_', ' ').title(),
+            showlegend=False 
+        )
+        logger.info(f"Created boxplot for score '{score_column}'.")
+        return fig
+    except Exception as e:
+        logger.error(f"Error creating boxplot for score '{score_column}': {e}", exc_info=True)
+        return None
 
-    selected_run_id = st.sidebar.selectbox("Select a Benchmark Run:", available_runs)
 
-    if not selected_run_id: # Should not happen if available_runs is not empty, but as a safeguard
-        st.error("No run selected.")
-        st.stop()
+def create_cost_plot(cost_report_df: pd.DataFrame, title_prefix: str = '') -> Optional[go.Figure]:
+    """
+    Creates a bar chart of total cost per model from the cost report DataFrame.
+    """
+    if cost_report_df.empty:
+        logger.warning("Cost report DataFrame is empty, cannot generate cost plot.")
+        return None
+    if 'model' not in cost_report_df.columns or 'cost_usd' not in cost_report_df.columns:
+        logger.warning("Required columns ('model', 'cost_usd') not found in cost report DataFrame.")
+        return None
 
-    # --- Main Content Area ---
-    st.header(f"Results for Run: {selected_run_id}")
+    try:
+        cost_report_df['cost_usd'] = pd.to_numeric(cost_report_df['cost_usd'], errors='coerce')
+        cost_report_df.dropna(subset=['cost_usd'], inplace=True) 
 
-    # Define paths based on selection
-    run_path = Path(base_dir_for_runs) / selected_run_id
-    db_path_str = str(run_path / f"{selected_run_id}_benchmark_data.sqlite")
+        cost_per_model = cost_report_df.groupby('model')['cost_usd'].sum().reset_index()
+
+        fig = px.bar(
+            cost_per_model,
+            x='model',
+            y='cost_usd',
+            color='model',
+            title=f"{title_prefix}Total Cost by Model",
+            labels={'model': 'Model', 'cost_usd': 'Total Cost (USD)'}
+        )
+        fig.update_layout(
+            xaxis_title="Model",
+            yaxis_title="Total Cost (USD)",
+            showlegend=False
+        )
+        logger.info("Created total cost by model bar chart.")
+        return fig
+    except Exception as e:
+        logger.error(f"Error creating cost plot: {e}", exc_info=True)
+        return None
+
+
+def save_figure(fig: go.Figure, run_id: str, filename_base: str, base_output_dir_str: str) -> None:
+    """
+    Saves a Plotly figure as HTML and PNG.
+    """
+    plots_output_path = Path(base_output_dir_str) / run_id / "plots"
+    try:
+        plots_output_path.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        logger.error(f"Failed to create plot directory {plots_output_path}: {e}. Plots will not be saved.", exc_info=True)
+        return
+
+    html_path = plots_output_path / f"{filename_base}.html"
+    png_path = plots_output_path / f"{filename_base}.png"
+
+    try:
+        fig.write_html(str(html_path))
+        logger.info(f"Saved plot to {html_path}")
+        try:
+            fig.write_image(str(png_path), scale=2) 
+            logger.info(f"Saved plot to {png_path}")
+        except Exception as e_img: 
+            logger.error(f"Error saving plot to static image {png_path}: {e_img}. "
+                         "Ensure Kaleido is installed and working correctly. HTML version might still be available.", exc_info=True)
+    except Exception as e_html:
+        logger.error(f"Error saving plot to HTML {html_path}: {e_html}", exc_info=True)
+
+
+def generate_standard_visualizations(run_id: str, base_benchmark_dir: str) -> None:
+    """
+    Main orchestrating function to generate and save standard visualizations for a run.
+    """
+    logger.info(f"Starting visualization generation for run_id: {run_id}")
+    run_path = Path(base_benchmark_dir) / run_id
+    db_path_str = str(run_path / f"{run_id}_benchmark_data.sqlite")
     cost_csv_path_str = str(run_path / "cost_report.csv")
 
-    # DataFrames to hold loaded data, initialize as empty
-    records_df = pd.DataFrame()
-    cost_df = pd.DataFrame()
+    conn = _get_db_connection(db_path_str)
+    if not conn:
+        logger.error(f"Cannot generate visualizations as DB connection to {db_path_str} failed.")
+        return
 
-    # --- Display Basic Stats (from DB) ---
-    st.subheader("📊 Run Overview & Data Table")
-    conn: Optional[sqlite3.Connection] = visualize._get_db_connection(db_path_str) # Use existing helper
+    try:
+        records_df = _fetch_data_from_db(conn, run_id)
+        if not records_df.empty:
+            fig_boxplot_gesamt = create_scores_boxplot(
+                records_df, score_column='gesamt', title_prefix=f"Run {run_id}: "
+            )
+            if fig_boxplot_gesamt:
+                save_figure(fig_boxplot_gesamt, run_id, "scores_gesamt_boxplot", base_benchmark_dir)
 
-    if conn:
-        try:
-            records_df = visualize._fetch_data_from_db(conn, selected_run_id) # Fetch specific run_id
-            if not records_df.empty:
-
-                col1, col2, col3 = st.columns(3)
-                num_records = len(records_df)
-                avg_score_gesamt = records_df['gesamt'].mean() if 'gesamt' in records_df.columns else 'N/A'
-                total_cost_from_db = records_df['cost_usd'].sum() if 'cost_usd' in records_df.columns else 'N/A'
-
-                col1.metric("Total Records Processed", num_records)
-                col2.metric("Avg. 'Gesamt' Score", f"{avg_score_gesamt:.2f}" if isinstance(avg_score_gesamt, float) else avg_score_gesamt)
-                col3.metric("Total Cost (from DB records)", f"${total_cost_from_db:.4f}" if isinstance(total_cost_from_db, float) else total_cost_from_db)
-
-                with st.expander("View Raw Data Table (first 100 rows)", expanded=False):
-                    st.dataframe(records_df.head(100), use_container_width=True)
-            else:
-                st.warning("No records found in the database for this run.")
-
-        # --- Leaderboard Section ---
-        st.subheader("🏆 Model Performance Leaderboard for this Run")
-        leaderboard_df = create_leaderboard_df(records_df)
-        if not leaderboard_df.empty:
-            st.dataframe(leaderboard_df, use_container_width=True)
+            fig_boxplot_phon = create_scores_boxplot(
+                records_df, score_column='phonetische_aehnlichkeit', title_prefix=f"Run {run_id}: "
+            )
+            if fig_boxplot_phon:
+                save_figure(fig_boxplot_phon, run_id, "scores_phonetische_aehnlichkeit_boxplot", base_benchmark_dir)
         else:
-            st.info("No data available to build leaderboard for this run. This could be due to missing data or an issue in processing.")
+            logger.warning(f"No records found in DB for run_id {run_id} to generate score plots.")
+    except Exception as e:
+        logger.error(f"Error during score plot generation from DB for run {run_id}: {e}", exc_info=True)
+    finally:
+        logger.debug(f"Closing DB connection for run {run_id} visualizations.")
+        conn.close()
 
-        except Exception as e:
-            st.error(f"Error loading data from database: {e}")
-            logger.error(f"DB Error for {selected_run_id}: {e}", exc_info=True)
-        finally:
-            conn.close()
-    else:
-        st.error(f"Could not connect to database: {db_path_str}")
-
-    # --- Display Plots (from visualize.py) ---
-    st.subheader("📈 Visualizations")
-
-    if not records_df.empty:
-        # Scores Boxplots
-        st.markdown("#### Score Distributions by Model")
-        col_score_1, col_score_2 = st.columns(2)
-        with col_score_1:
-            fig_gesamt_scores = visualize.create_scores_boxplot(records_df, score_column='gesamt', title_prefix="")
-            if fig_gesamt_scores:
-                st.plotly_chart(fig_gesamt_scores, use_container_width=True)
-            else:
-                st.caption("Could not generate 'Gesamt' scores boxplot.")
-
-        with col_score_2:
-            fig_phon_scores = visualize.create_scores_boxplot(records_df, score_column='phonetische_aehnlichkeit', title_prefix="")
-            if fig_phon_scores:
-                st.plotly_chart(fig_phon_scores, use_container_width=True)
-            else:
-                st.caption("Could not generate 'Phonetische Ähnlichkeit' scores boxplot.")
-        # Add more score plots as desired (e.g., in more columns or an expander)
-
-    else: # records_df is empty
-        st.info("Score visualizations cannot be generated as no record data was loaded from the database.")
-
-    # Cost Plot
-    st.markdown("#### Cost Analysis")
     cost_csv_file = Path(cost_csv_path_str)
-    if cost_csv_file.exists() and cost_csv_file.is_file():
+    if cost_csv_file.exists():
         try:
             cost_df = pd.read_csv(cost_csv_file)
             if not cost_df.empty:
-                fig_cost = visualize.create_cost_plot(cost_df, title_prefix="")
-                if fig_cost:
-                    st.plotly_chart(fig_cost, use_container_width=True)
-                else:
-                    st.caption("Could not generate cost plot from CSV data.")
+                fig_cost_per_model = create_cost_plot(cost_df, title_prefix=f"Run {run_id}: ")
+                if fig_cost_per_model:
+                    save_figure(fig_cost_per_model, run_id, "cost_per_model_barchart", base_benchmark_dir)
             else:
-                st.caption(f"Cost report ({cost_csv_file.name}) is empty.")
+                logger.warning(f"Cost report {cost_csv_path_str} is empty.")
         except pd.errors.EmptyDataError:
-             st.caption(f"Cost report ({cost_csv_file.name}) is empty (pandas EmptyDataError).")
+             logger.warning(f"Cost report {cost_csv_path_str} is empty (pandas EmptyDataError).")
         except Exception as e:
-            st.error(f"Error loading cost data from {cost_csv_file.name}: {e}")
-            logger.error(f"Cost CSV Error for {selected_run_id}: {e}", exc_info=True)
+            logger.error(f"Failed to process cost report {cost_csv_path_str}: {e}", exc_info=True)
     else:
-        st.caption(f"Cost report not found at: {cost_csv_path_str}")
+        logger.warning(f"Cost report {cost_csv_path_str} not found.")
 
-    # Placeholder for more advanced analytics/comparisons
-    st.sidebar.markdown("---")
-    st.sidebar.info("Future features: Compare runs, detailed model views, custom plot parameters.")
+    logger.info(f"Visualization generation finished for run_id: {run_id}")
 
-# To run this dashboard:
-# 1. Ensure you have benchmark data in `benchmarks_output/` (or as specified).
-# 2. In your terminal, navigate to the root of the project.
-# 3. Run: `poetry run streamlit run src/analytics/dashboard.py`
-# (Or if your environment is already activated: `streamlit run src/analytics/dashboard.py`)
+
 if __name__ == "__main__":
-    # This allows running `python src/analytics/dashboard.py` for local development,
-    # but `streamlit run src/analytics/dashboard.py` is the standard way.
-    # Note: Streamlit's execution model means this `if __name__ == "__main__":` block
-    # will run, and then Streamlit takes over the script from the top.
-    # It's common to put the main app logic in a function and call it, as done here.
-    main_dashboard()
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
+    test_run_id_to_visualize = "test_run_CHANGE_ME" 
+    test_base_output_dir = "benchmarks_output" 
 
+    if "CHANGE_ME" in test_run_id_to_visualize:
+        logger.warning("Please update 'test_run_id_to_visualize' in visualize.py's __main__ block "
+                       "to an actual run_id from your benchmark outputs to test visualizations.")
+        try:
+            p = Path(test_base_output_dir)
+            if p.exists():
+                potential_runs = sorted([d.name for d in p.iterdir() if d.is_dir() and d.name.startswith("run_")])
+                if potential_runs:
+                    test_run_id_to_visualize = potential_runs[-1]
+                    logger.info(f"Auto-selected most recent run_id for visualization test: {test_run_id_to_visualize}")
+                else:
+                    logger.warning(f"No run directories found in {test_base_output_dir} to auto-select for test.")
+            else:
+                logger.warning(f"Base output directory {test_base_output_dir} not found. Cannot auto-select run_id.")
+
+        except Exception as e_auto:
+            logger.error(f"Error during auto-selection of run_id: {e_auto}")
+
+    if "CHANGE_ME" not in test_run_id_to_visualize and Path(test_base_output_dir, test_run_id_to_visualize).exists():
+        logger.info(f"Attempting to generate visualizations for run_id='{test_run_id_to_visualize}' "
+                    f"in base_directory='{test_base_output_dir}'")
+        generate_standard_visualizations(
+            run_id=test_run_id_to_visualize,
+            base_benchmark_dir=test_base_output_dir
+        )
+    else:
+        logger.error(f"Test run directory '{Path(test_base_output_dir, test_run_id_to_visualize)}' not found or "
+                       "test_run_id_to_visualize is still a placeholder. Skipping __main__ test for visualize.py.")
