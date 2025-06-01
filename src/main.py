@@ -55,30 +55,23 @@ async def run_benchmark(
             logger.info(f"Attempting to load settings from specified config file: {config_file}")
             settings = Settings(_env_file=config_file)
         else:
-            # Explicitly point to ".env" in the current directory if no --config is given
-            # This assumes the script's CWD is the project root when run with `poetry run`
             env_path = Path.cwd() / ".env"
             if env_path.exists() and env_path.is_file():
                 logger.info(f"Attempting to load settings from default .env file: {env_path}")
                 settings = Settings(_env_file=env_path)
             else:
                 logger.warning(f"Default .env file not found at {env_path}. Attempting to load from environment variables only.")
-                settings = Settings() # Fallback to environment variables only if .env not found
+                settings = Settings()
         
         logger.info(f"Settings loaded. Judge model: {settings.JUDGE_MODEL_NAME}, Max budget: ${settings.MAX_BUDGET_USD}")
-        # The following line is just to confirm OPENROUTER_API_KEY was loaded (it will error if not)
-        # Pydantic already does this check by it being a required field without a default.
-        # If settings.OPENROUTER_API_KEY is accessed here and it's missing, it would error earlier.
-        # So, the check is implicitly done by Settings instantiation.
 
-    except ValidationError as ve: # Catch Pydantic's validation error specifically
+    except ValidationError as ve:
         logger.error(f"Error loading settings: {ve}. Aborting run.")
         return
     except Exception as e: 
         logger.error(f"An unexpected error occurred during settings loading: {e}. Aborting run.", exc_info=True)
         return
 
-    # Write metadata (excluding sensitive fields)
     serializable_settings = settings.model_dump(exclude={'OPENROUTER_API_KEY'})
     write_meta_json(
         run_id=current_run_id,
@@ -149,6 +142,20 @@ async def run_benchmark(
                     )
 
                     if judge_score_obj:
+                        # ---- MODIFICATION START ----
+                        # Calculate the total score from the individual components
+                        actual_total_score = (
+                            judge_score_obj.phonetische_aehnlichkeit +
+                            judge_score_obj.anzueglichkeit +
+                            judge_score_obj.logik +
+                            judge_score_obj.kreativitaet
+                        )
+                        # Update the gesamt score in the judge_score_obj
+                        # The Pydantic model's validator for 'gesamt' will clamp this sum if necessary.
+                        judge_score_obj.gesamt = actual_total_score
+                        logger.info(f"Calculated total score for {generation_result_obj.model} run {generation_result_obj.run}: {actual_total_score} (set to judge_score_obj.gesamt: {judge_score_obj.gesamt})")
+                        # ---- MODIFICATION END ----
+
                         benchmark_record_obj = BenchmarkRecord(
                             generation=generation_result_obj, judge=judge_score_obj
                         )
