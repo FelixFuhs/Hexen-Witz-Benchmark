@@ -1,13 +1,18 @@
-# Schwerhörige-Hexe Judge-Checkliste (0-100 Punkte)
+# Schwerhörige-Hexe Judge-Checkliste (Punkte für 4 Kriterien)
 
-Bewerte folgendes Wortspiel-Paar nach dieser detaillierten Checkliste:
+## **WICHTIGE INSTRUKTION: DU BEWERTEST EIN NEUES, UNBEKANNTES WORTSPIEL.**
+## **BEWERTE NICHT DIE BEISPIELE IN DEN KRITERIEN!**
 
-**WUNSCH:** [aus der Antwort extrahiert]  
-**ERGEBNIS:** [aus der Antwort extrahiert]
+Gegeben sind ein **WUNSCH** und ein **ERGEBNIS** eines Wortspiels:
+- **WUNSCH:** [Was sich der Gast von der Hexe wünscht – wird hier automatisch eingefügt]
+- **ERGEBNIS:** [Was er stattdessen bekommt – wird hier automatisch eingefügt]
+
+Deine Aufgabe: Bewerte dieses spezifische, NEUE Wortspiel-Paar nach den folgenden vier Kriterien.
+Gib für jedes der vier Kriterien eine Punktzahl und eine kurze Begründung.
 
 *Optional: Übersetze beide in IPA zur Hilfe bei der phonetischen Bewertung.*
 
-## Bewertungskriterien (Total: 100 Punkte)
+## Bewertungskriterien (Total: 100 Punkte durch Addition der 4 Kriterien)
 
 ### 1. Phonetische Ähnlichkeit (0-35 Punkte) ⭐ WICHTIGSTE KATEGORIE
 **Dies ist der KERN des Witzes - ohne phonetische Verwechslung funktioniert er nicht!**
@@ -18,7 +23,7 @@ Bewerte folgendes Wortspiel-Paar nach dieser detaillierten Checkliste:
 - **10-15 Punkte:** Schwache Ähnlichkeit, nur einzelne Laute stimmen überein
   - Beispiel: "Titten" → "Tipps" (nur T und Endkonsonant ähnlich)
 - **20-25 Punkte:** Deutliche Ähnlichkeit, mehrere Silben klingen ähnlich
-  - Beispiel GUT: "heiße" → "weiße" 
+  - Beispiel GUT: "heiße" → "weiße"
   - Beispiel GUT: "Yacht" → "Achte"
 - **30-35 Punkte:** Sehr hohe Ähnlichkeit, fast identisch klingend
   - Beispiel EXZELLENT: "Pimmel" → "Schimmel"
@@ -41,7 +46,7 @@ Bewerte folgendes Wortspiel-Paar nach dieser detaillierten Checkliste:
 - **0 Punkte:** Völlig unlogisch oder nicht existent
   - Beispiel SCHLECHT: "Scheibe Kraut", "Achte mit blanker Kuh"
 - **5-10 Punkte:** Existiert, aber Verbindung ist sehr gezwungen
-  - Beispiel: Anker für "Achterknoten" 
+  - Beispiel: Anker für "Achterknoten"
 - **15-20 Punkte:** Klares, reales Objekt mit logischer Verbindung
   - Beispiel GUT: "Portion Cayenne-Pfeffer"
   - Beispiel GUT: "weißes Pferd (Schimmel)"
@@ -56,7 +61,8 @@ Bewerte folgendes Wortspiel-Paar nach dieser detaillierten Checkliste:
 - **20 Punkte:** Besonders clevere, überraschende Lösung
   - Bonus für mehrschichtige Wortspiele
 
-## BEWERTUNG OUTPUT
+## BEWERTUNG OUTPUT (JSON-Format)
+Gib deine Bewertung als JSON-Objekt exakt in diesem Format zurück. Die Gesamtpunktzahl wird später automatisch berechnet.
 
 ```json
 {
@@ -64,7 +70,6 @@ Bewerte folgendes Wortspiel-Paar nach dieser detaillierten Checkliste:
   "anzueglichkeit": X,
   "logik": X,
   "kreativitaet": X,
-  "gesamt": X,
   "begruendung": {
     "phonetisch": "...",
     "anzueglich": "...",
@@ -74,7 +79,14 @@ Bewerte folgendes Wortspiel-Paar nach dieser detaillierten Checkliste:
 }
 ```
 
-## KRITISCHE FEHLER (Automatisch 0-30 Punkte Gesamt)
-- Keine phonetische Verwechslung → Aufgabe nicht verstanden
-- Andere Witz-Mechanik verwendet (z.B. wörtliche Interpretation)
-- Wunsch und Ergebnis haben keinen Klangbezug
+## WICHTIGE HINWEISE FÜR DIE BEWERTUNG
+
+**Wenn KEINE phonetische Verwechslung vorliegt (Aufgabe verfehlt):**
+- Phonetische Ähnlichkeit: Muss 0-5 Punkte sein.
+- Begründung (phonetisch): Erkläre hier ausführlich, warum das Grundprinzip des phonetischen Wortspiels verfehlt wurde (z.B. "Wort wurde nur wörtlich interpretiert, keine Klangähnlichkeit zum Wunsch vorhanden.").
+- Die anderen drei Kategorien (Anzüglichkeit, Logik, Kreativität) trotzdem normal und fair für das präsentierte "Ergebnis" bewerten, auch wenn der Witz-Mechanismus fehlt.
+
+**Häufige Fehler die zu niedrigen Punktzahlen führen (insbesondere bei Phonetischer Ähnlichkeit):**
+- Rein wörtliche Interpretation des Wunsches statt einer Klangverwechslung.
+- Absolut keine hörbare phonetische Ähnlichkeit zwischen dem ursprünglichen Wunsch und dem Ergebnis.
+- Wiederholung derselben Wörter im Ergebnis, anstatt einer echten Verwechslung (z.B. "Ich wünsche mir Cayenne" → "Du bekommst Cayenne").
