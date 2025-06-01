@@ -205,39 +205,3 @@ def generate_standard_visualizations(run_id: str, base_benchmark_dir: str) -> No
         logger.warning(f"Cost report {cost_csv_path_str} not found.")
 
     logger.info(f"Visualization generation finished for run_id: {run_id}")
-
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
-    test_run_id_to_visualize = "test_run_CHANGE_ME" 
-    test_base_output_dir = "benchmarks_output" 
-
-    if "CHANGE_ME" in test_run_id_to_visualize:
-        logger.warning("Please update 'test_run_id_to_visualize' in visualize.py's __main__ block "
-                       "to an actual run_id from your benchmark outputs to test visualizations.")
-        try:
-            p = Path(test_base_output_dir)
-            if p.exists():
-                potential_runs = sorted([d.name for d in p.iterdir() if d.is_dir() and d.name.startswith("run_")])
-                if potential_runs:
-                    test_run_id_to_visualize = potential_runs[-1]
-                    logger.info(f"Auto-selected most recent run_id for visualization test: {test_run_id_to_visualize}")
-                else:
-                    logger.warning(f"No run directories found in {test_base_output_dir} to auto-select for test.")
-            else:
-                logger.warning(f"Base output directory {test_base_output_dir} not found. Cannot auto-select run_id.")
-
-        except Exception as e_auto:
-            logger.error(f"Error during auto-selection of run_id: {e_auto}")
-
-    if "CHANGE_ME" not in test_run_id_to_visualize and Path(test_base_output_dir, test_run_id_to_visualize).exists():
-        logger.info(f"Attempting to generate visualizations for run_id='{test_run_id_to_visualize}' "
-                    f"in base_directory='{test_base_output_dir}'")
-        generate_standard_visualizations(
-            run_id=test_run_id_to_visualize,
-            base_benchmark_dir=test_base_output_dir
-        )
-    else:
-        logger.error(f"Test run directory '{Path(test_base_output_dir, test_run_id_to_visualize)}' not found or "
-                       "test_run_id_to_visualize is still a placeholder. Skipping __main__ test for visualize.py.")

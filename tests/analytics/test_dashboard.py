@@ -1,5 +1,6 @@
 import pytest
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 # For more advanced Streamlit testing, you might use:
 # from streamlit.testing.v1 import AppTest
 
@@ -69,6 +70,83 @@ def test_get_available_run_ids_with_valid_and_invalid_runs(temp_benchmark_output
 def test_get_available_run_ids_base_dir_not_exists():
     runs = get_available_run_ids("non_existent_base_directory")
     assert runs == []
+
+@patch('sqlite3.connect')
+def test_get_available_run_ids_with_empty_db_records(mock_sqlite_connect, temp_benchmark_output_dir: Path):
+    """
+    Tests that get_available_run_ids filters out runs where the database
+    indicates zero records for that specific run_id.
+    """
+    run_valid_data_name = "run_20230103_100000"
+    run_valid_data_path = temp_benchmark_output_dir / run_valid_data_name
+    run_valid_data_path.mkdir()
+    valid_db_file_path = run_valid_data_path / f"{run_valid_data_name}_benchmark_data.sqlite"
+    valid_db_file_path.touch()
+
+    run_empty_records_name = "run_20230103_110000"
+    run_empty_records_path = temp_benchmark_output_dir / run_empty_records_name
+    run_empty_records_path.mkdir()
+    empty_db_file_path = run_empty_records_path / f"{run_empty_records_name}_benchmark_data.sqlite"
+    empty_db_file_path.touch()
+
+    # Mocking the database connection and query results
+    def mock_connect_side_effect(db_uri_str, uri):
+        # Extract file path from 'file:path?mode=ro'
+        db_path_str = db_uri_str.replace("file:", "").split("?")[0]
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_conn.close = MagicMock() # Mock the close method as it's called in finally
+
+        if run_valid_data_name in db_path_str:
+            # Simulate this run having 5 records
+            mock_cursor.fetchone.return_value = (5,)
+            logger_msg = f"Mocking connect for {db_path_str}: returning 5 records."
+        elif run_empty_records_name in db_path_str:
+            # Simulate this run having 0 records
+            mock_cursor.fetchone.return_value = (0,)
+            logger_msg = f"Mocking connect for {db_path_str}: returning 0 records."
+        else:
+            # Default for any other unexpected calls, though test should control this
+            mock_cursor.fetchone.return_value = (0,)
+            logger_msg = f"Mocking connect for {db_path_str}: returning default 0 records (unexpected)."
+
+        # To aid debugging tests, you could print this:
+        # print(logger_msg)
+        return mock_conn
+
+    mock_sqlite_connect.side_effect = mock_connect_side_effect
+
+    # Call the function under test
+    # Note: get_available_run_ids sorts in reverse, so run_empty_records_name would be first if not filtered
+    runs = get_available_run_ids(str(temp_benchmark_output_dir))
+
+    # Assertions
+    assert run_valid_data_name in runs, f"Expected '{run_valid_data_name}' to be in runs."
+    assert run_empty_records_name not in runs, f"Expected '{run_empty_records_name}' NOT to be in runs."
+    assert len(runs) == 1, f"Expected 1 run, but got {len(runs)}: {runs}"
+
+    # Verify that sqlite3.connect was called for both DBs
+    # The str() conversion is important as Path objects might not match exactly if not careful
+    mock_sqlite_connect.assert_any_call(f"file:{str(valid_db_file_path)}?mode=ro", uri=True)
+    mock_sqlite_connect.assert_any_call(f"file:{str(empty_db_file_path)}?mode=ro", uri=True)
+
+    # Check that execute was called on the cursor for each connection
+    # This is a bit more involved as mock_conn is created inside side_effect
+    # We can check call counts or inspect call_args_list on mock_sqlite_connect.return_value.cursor.return_value.execute
+    # For simplicity here, we'll trust the side_effect correctly configured fetchone based on the DB.
+    # A more rigorous check could be:
+    # for call_obj in mock_sqlite_connect.call_args_list:
+    #     args, kwargs = call_obj
+    #     db_uri_passed = args[0]
+    #     mock_connection_instance = mock_sqlite_connect.side_effect(db_uri_passed, uri=True) # re-invoke to get the mock_conn
+    #     # Check if execute was called with the correct run_id
+    #     if run_valid_data_name in db_uri_passed:
+    #         mock_connection_instance.cursor().execute.assert_called_with("SELECT COUNT(*) FROM records WHERE run_id = ?", (run_valid_data_name,))
+    #     elif run_empty_records_name in db_uri_passed:
+    #         mock_connection_instance.cursor().execute.assert_called_with("SELECT COUNT(*) FROM records WHERE run_id = ?", (run_empty_records_name,))
+
 
 # Note: Full testing of Streamlit apps often involves UI interaction simulation,
 # which can be done with tools like Selenium or Playwright for end-to-end tests,
