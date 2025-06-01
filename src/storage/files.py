@@ -43,7 +43,7 @@ def save_generation_result(result: GenerationResult, run_id: str, base_path_str:
         return
 
     raw_path = run_path / "raw"
-    safe_model_name = result.model.replace('/', '_')
+    safe_model_name = result.model.replace('/', '_').replace(':', '_')
     file_name = f"{safe_model_name}_{result.run}.json" 
     file_path = raw_path / file_name
 
@@ -69,7 +69,7 @@ def save_benchmark_record(record: BenchmarkRecord, run_id: str, base_path_str: s
         return
 
     judged_path = run_path / "judged"
-    safe_model_name = record.generation.model.replace('/', '_')
+    safe_model_name = record.generation.model.replace('/', '_').replace(':', '_') # MODIFIED LINE
     file_name = f"{safe_model_name}_{record.generation.run}.json" 
     file_path = judged_path / file_name
 
