@@ -184,19 +184,4 @@ if __name__ == "__main__":
     # It's common to put the main app logic in a function and call it, as done here.
     main_dashboard()
 
-```
-Key changes and considerations in this Streamlit app:
-- **Imports**: All necessary modules are imported. `visualize` is imported from `src.analytics`.
-- **`get_available_run_ids`**: This function now checks for the existence of the SQLite DB file (`{d.name}_benchmark_data.sqlite`) within each subdirectory to qualify it as a valid run.
-- **Error Handling**: Added more robust error handling for missing base directory, empty runs, DB connection failures, and empty dataframes.
-- **User Guidance**: If no runs are found, it provides guidance on how to generate benchmark data.
-- **Layout**: Uses `st.columns` for a simple two-column layout for some metrics and plots.
-- **Data Display**:
-    - Shows key metrics (total records, avg. score, total cost from DB).
-    - Displays the head of the main records DataFrame in an expander.
-- **Plotting**: Directly calls plot creation functions from `visualize.py` and uses `st.plotly_chart` to display them. This is more dynamic than saving to files and then loading image files.
-- **Cost Data**: Loads the `cost_report.csv` to generate the cost plot.
-- **`main_dashboard()` function**: Encapsulates the main Streamlit UI logic.
-- **`if __name__ == "__main__":`**: Calls `main_dashboard()`. This is standard for making Streamlit scripts runnable directly with `python`, though `streamlit run` is the typical command.
 
-This provides a solid foundation for the dashboard. I'll submit the report.
