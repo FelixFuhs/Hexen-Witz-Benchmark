@@ -2,9 +2,9 @@ import sqlite3
 import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timezone # Ensure timezone is available for __main__
+from datetime import datetime, timezone 
 
-from src.models import BenchmarkRecord, GenerationResult, Summary, JudgeScore # For __main__ type hints
+from src.models import BenchmarkRecord, GenerationResult, Summary, JudgeScore 
 
 logger = logging.getLogger(__name__)
 
@@ -27,21 +27,20 @@ CREATE TABLE IF NOT EXISTS records (
   ts TIMESTAMP
 );"""
 
-RECORDS_INDEX_DDL = """CREATE INDEX IF NOT EXISTS idx_model_run_id ON records(model, run_id);""" # Index on model and run_id
+RECORDS_INDEX_DDL = """CREATE INDEX IF NOT EXISTS idx_model_run_id ON records(model, run_id);"""
 
 def create_connection(db_file_str: str) -> Optional[sqlite3.Connection]:
     """Creates a connection to the SQLite database specified by db_file."""
     db_file = Path(db_file_str)
     try:
-        # Ensure parent directory exists
         db_file.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(db_file)) # sqlite3.connect expects a string path
+        conn = sqlite3.connect(str(db_file)) 
         logger.info(f"SQLite connection established to {db_file}")
         return conn
     except sqlite3.Error as e:
         logger.error(f"Error connecting to SQLite database {db_file}: {e}", exc_info=True)
         return None
-    except OSError as e: # Catch errors from mkdir, e.g., permission issues
+    except OSError as e: 
         logger.error(f"Error creating directory for SQLite database {db_file.parent}: {e}", exc_info=True)
         return None
 
@@ -62,18 +61,16 @@ def execute_ddl(conn: sqlite3.Connection) -> bool:
 
 def insert_benchmark_record(conn: sqlite3.Connection, record: BenchmarkRecord, run_id: str) -> bool:
     """Inserts a BenchmarkRecord into the database."""
-    record_unique_id = "" # Initialize for error logging
+    record_unique_id = "" 
 
     try:
         cursor = conn.cursor()
         gen = record.generation
         judge = record.judge
 
-        # Handle optional summary
         gewuenscht_val = gen.summary.gewuenscht if gen.summary else None
         bekommen_val = gen.summary.bekommen if gen.summary else None
 
-        # Create a unique ID for the record row
         safe_model_name = gen.model.replace('/', '_')
         record_unique_id = f"{run_id}_{safe_model_name}_{gen.run}"
 
@@ -102,7 +99,7 @@ def insert_benchmark_record(conn: sqlite3.Connection, record: BenchmarkRecord, r
     except sqlite3.Error as e:
         logger.error(f"Error inserting/updating BenchmarkRecord with id {record_unique_id}: {e}", exc_info=True)
         return False
-    except AttributeError as e: # Catch if gen.summary is None and .gewuenscht is accessed, etc.
+    except AttributeError as e: 
         logger.error(
             f"AttributeError inserting/updating BenchmarkRecord (likely missing summary parts or timestamp) for id {record_unique_id}: {e}",
             exc_info=True
@@ -112,7 +109,7 @@ def insert_benchmark_record(conn: sqlite3.Connection, record: BenchmarkRecord, r
 def get_records_by_model(conn: sqlite3.Connection, model_name: str) -> List[Dict[str, Any]]:
     """Fetches all records for a given model name. Returns a list of dicts."""
     try:
-        conn.row_factory = sqlite3.Row # Access columns by name
+        conn.row_factory = sqlite3.Row 
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM records WHERE model = ?", (model_name,))
         rows = cursor.fetchall()
@@ -121,21 +118,19 @@ def get_records_by_model(conn: sqlite3.Connection, model_name: str) -> List[Dict
         logger.error(f"Error fetching records for model {model_name}: {e}", exc_info=True)
         return []
     finally:
-        conn.row_factory = None # Reset row_factory to default
+        conn.row_factory = None 
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-    # Create a directory for the test DB if it doesn't exist
-    db_dir = Path("benchmarks_output/test_run_sqlite_main_dir") # More descriptive dir name
+    db_dir = Path("benchmarks_output/test_run_sqlite_main_dir") 
     db_dir.mkdir(parents=True, exist_ok=True)
-    DB_FILE = str(db_dir / "benchmark_data.sqlite") # Ensure full path as string
+    DB_FILE = str(db_dir / "benchmark_data.sqlite") 
     TEST_RUN_ID_SQLITE = "test_run_sqlite_main_v1"
 
     logger.info(f"Using SQLite DB file: {DB_FILE}")
 
-    # Sample data
     sample_summary = Summary(gewuenscht="Ein schnelles Auto", bekommen="Ein Schaf das niest (Hatschi!)")
     sample_gen_ts_1 = datetime.now(timezone.utc)
     sample_gen = GenerationResult(
@@ -159,14 +154,11 @@ if __name__ == "__main__":
                     safe_model_name = sample_gen.model.replace('/', '_')
                     logger.info(f"Record {TEST_RUN_ID_SQLITE}_{safe_model_name}_{sample_gen.run} inserted successfully.")
 
-                # Test with missing summary
                 sample_gen_no_summary_ts = datetime.now(timezone.utc)
                 sample_gen_no_summary = GenerationResult(
                     model="test/model-sqlite-main", run=2, summary=None, full_response="Kein Witz, keine Pointe.",
                     prompt_tokens=6, completion_tokens=6, cost_usd=0.0006, timestamp=sample_gen_no_summary_ts
                 )
-                # Judge score might still be there even if summary is missing, depending on how judging is handled for such cases.
-                # For this test, assume a JudgeScore is provided (e.g., all zeros if judging was skipped but a record is made).
                 sample_judge_for_no_summary = JudgeScore(
                     phonetische_aehnlichkeit=0, anzueglichkeit=0, logik=0, kreativitaet=0, gesamt=0,
                     begruendung={"system": "Summary missing, auto-scored to 0"}, flags=["summary_missing"]
@@ -177,13 +169,11 @@ if __name__ == "__main__":
                     safe_model_name_no_summary = sample_gen_no_summary.model.replace('/', '_')
                     logger.info(f"Record (no summary) {TEST_RUN_ID_SQLITE}_{safe_model_name_no_summary}_{sample_gen_no_summary.run} inserted successfully.")
 
-                # Test get_records_by_model
                 retrieved_records = get_records_by_model(conn, "test/model-sqlite-main")
                 logger.info(f"Retrieved {len(retrieved_records)} records for model 'test/model-sqlite-main':")
                 for r_idx, r_dict in enumerate(retrieved_records):
                     print(f"  Record {r_idx + 1}: {r_dict}")
 
-                # Test upsert
                 sample_gen_updated_ts = datetime.now(timezone.utc)
                 sample_gen_updated = GenerationResult(
                     model="test/model-sqlite-main", run=1, summary=sample_summary, full_response="Ein Schaf macht Hatschi! (aktualisiert)",
@@ -202,8 +192,6 @@ if __name__ == "__main__":
                 logger.info(f"Retrieved {len(retrieved_records_after_update)} records for model 'test/model-sqlite-main' after update:")
                 for r_idx, r_dict_upd in enumerate(retrieved_records_after_update):
                     print(f"  Record {r_idx + 1} (after update): {r_dict_upd}")
-
-
             else:
                 logger.error("Failed to execute DDL for __main__ test.")
         except Exception as e:
@@ -213,18 +201,3 @@ if __name__ == "__main__":
             conn.close()
     else:
         logger.error(f"Failed to create SQLite connection to {DB_FILE} for __main__ test.")
-
-```
-Key changes and considerations in this implementation:
-- **Directory Creation**: `db_file.parent.mkdir(parents=True, exist_ok=True)` is now correctly placed within the `try` block of `create_connection` to handle potential `OSError` during directory creation.
-- **Index Naming**: Changed `idx_model` to `idx_model_run_id` and included `run_id` for potentially better query performance if filtering by both.
-- **UPSERT Logic**: Added `ON CONFLICT(id) DO UPDATE SET ...` to `insert_benchmark_record`. This makes the insertion an "upsert" operation: if a record with the same composite ID already exists, it will be updated. This is useful if benchmark runs are re-processed.
-- **Timestamp Handling**: Ensured `gen.timestamp` is converted to ISO format. If it's `None` (which it shouldn't be based on `GenerationResult` model unless it's made optional later), it defaults to `datetime.now(timezone.utc).isoformat()`.
-- **Error Logging**: Added `exc_info=True` to several `logger.error` calls to include stack traces for better debugging.
-- **`__main__` Test**:
-    - More descriptive test directory name.
-    - Explicitly converts `DB_FILE` path to string for `create_connection`.
-    - Tests the upsert functionality by inserting an updated record.
-    - Provides more detailed logging.
-
-This version should be robust. I'll submit the report.
