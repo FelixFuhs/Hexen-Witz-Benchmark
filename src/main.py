@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import json # For loading raw generation results
-from pathlib import Path
+from pathlib import Path # Ensure Path is imported
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
@@ -9,18 +9,18 @@ from pydantic import ValidationError # For handling GenerationResult parsing err
 
 from src.config import Settings
 from src.router_client import RouterClient, BudgetExceededError
-from src.generator import run_generations_for_model # Renamed from run_generations_for_model
+from src.generator import run_generations_for_model
 from src.judge import judge_response, load_judge_prompt_template
-from src.models import GenerationResult, BenchmarkRecord # Summary not directly used here but is part of models
+from src.models import GenerationResult, BenchmarkRecord
 from src.storage.files import save_benchmark_record, write_meta_json
 from src.storage.database import create_connection, execute_ddl, insert_benchmark_record
-import sqlite3 # Added import for type hint consistency, though create_connection returns it
+import sqlite3
 
 # Basic logging configuration
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()] # Ensure logs go to console
+    handlers=[logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ async def run_benchmark(
     run_id: Optional[str] = None,
     models_to_run: Optional[List[str]] = None,
     num_runs_per_model: int = 1,
-    config_file: Optional[str] = None, # Changed from config_path to align with Pydantic settings
+    config_file: Optional[str] = None,
     base_output_dir_str: str = "benchmarks_output"
 ) -> None:
     """
@@ -40,7 +40,6 @@ async def run_benchmark(
     base_output_path = Path(base_output_dir_str)
     run_output_path = base_output_path / current_run_id
 
-    # Ensure base run directory exists (storage.files.ensure_dir_structure will also do this, but good to have early)
     try:
         run_output_path.mkdir(parents=True, exist_ok=True)
         logger.info(f"Output directory for run {current_run_id}: {run_output_path}")
@@ -52,16 +51,34 @@ async def run_benchmark(
 
     # Load settings
     try:
-        # Pydantic's BaseSettings will automatically look for a .env file if _env_file is not specified or is None.
-        # If config_file is provided, it's passed as the _env_file argument.
-        settings = Settings(_env_file=config_file) if config_file else Settings()
+        if config_file:
+            logger.info(f"Attempting to load settings from specified config file: {config_file}")
+            settings = Settings(_env_file=config_file)
+        else:
+            # Explicitly point to ".env" in the current directory if no --config is given
+            # This assumes the script's CWD is the project root when run with `poetry run`
+            env_path = Path.cwd() / ".env"
+            if env_path.exists() and env_path.is_file():
+                logger.info(f"Attempting to load settings from default .env file: {env_path}")
+                settings = Settings(_env_file=env_path)
+            else:
+                logger.warning(f"Default .env file not found at {env_path}. Attempting to load from environment variables only.")
+                settings = Settings() # Fallback to environment variables only if .env not found
+        
         logger.info(f"Settings loaded. Judge model: {settings.JUDGE_MODEL_NAME}, Max budget: ${settings.MAX_BUDGET_USD}")
-    except Exception as e: # Catch errors during settings loading (e.g., if .env file has issues or required vars missing)
-        logger.error(f"Error loading settings: {e}. Aborting run.", exc_info=True)
+        # The following line is just to confirm OPENROUTER_API_KEY was loaded (it will error if not)
+        # Pydantic already does this check by it being a required field without a default.
+        # If settings.OPENROUTER_API_KEY is accessed here and it's missing, it would error earlier.
+        # So, the check is implicitly done by Settings instantiation.
+
+    except ValidationError as ve: # Catch Pydantic's validation error specifically
+        logger.error(f"Error loading settings: {ve}. Aborting run.")
+        return
+    except Exception as e: 
+        logger.error(f"An unexpected error occurred during settings loading: {e}. Aborting run.", exc_info=True)
         return
 
     # Write metadata (excluding sensitive fields)
-    # Use model_dump(exclude=...) for Pydantic v2
     serializable_settings = settings.model_dump(exclude={'OPENROUTER_API_KEY'})
     write_meta_json(
         run_id=current_run_id,
@@ -75,34 +92,29 @@ async def run_benchmark(
     try:
         router_client = RouterClient(settings)
 
-        # Database Setup
         db_file = str(run_output_path / f"{current_run_id}_benchmark_data.sqlite")
-        # Use the database module's create_connection
-        db_conn = create_connection(db_file) # from src.storage.database
-        if not db_conn or not execute_ddl(db_conn): # from src.storage.database
+        db_conn = create_connection(db_file)
+        if not db_conn or not execute_ddl(db_conn):
             logger.error("Failed to initialize SQLite database. Aborting run.")
             return
 
-        # Model selection
         if not models_to_run:
-            models_to_run = ["mistralai/mistral-7b-instruct"] # Default test model
+            models_to_run = ["mistralai/mistral-7b-instruct"]
             logger.info(f"No models specified, using default: {models_to_run}")
 
-        judge_prompt_template_content = load_judge_prompt_template() # from src.judge
+        judge_prompt_template_content = load_judge_prompt_template()
         judge_llm_name = settings.JUDGE_MODEL_NAME
 
-        # --- Generation Phase ---
         logger.info(f"--- Starting Generation Phase for run {current_run_id} ---")
         for model_name in models_to_run:
             logger.info(f"Running generations for model: {model_name} ({num_runs_per_model} runs)")
             try:
-                await run_generations_for_model( # from src.generator
+                await run_generations_for_model(
                     router_client=router_client,
                     model=model_name,
                     num_runs=num_runs_per_model,
                     current_run_id=current_run_id,
-                    base_output_dir=base_output_dir_str # Corrected param name in prior version, ensuring it's `base_output_dir`
-                                                        # Matching `run_generations_for_model` in generator.py which expects `base_output_dir`
+                    base_output_dir=base_output_dir_str
                 )
             except BudgetExceededError as be:
                 logger.error(f"Budget exceeded during generation for model {model_name}: {be}. Stopping further generations.")
@@ -111,7 +123,6 @@ async def run_benchmark(
                 logger.error(f"Error during generation for model {model_name}: {e}", exc_info=True)
         logger.info(f"--- Generation Phase Complete for run {current_run_id} ---")
 
-        # --- Judging Phase ---
         logger.info(f"--- Starting Judging Phase for run {current_run_id} ---")
         raw_results_path = run_output_path / "raw"
         processed_files_count = 0
@@ -189,16 +200,8 @@ async def run_benchmark(
 
 
 if __name__ == "__main__":
-    # Example of how to run:
-    # Ensure OPENROUTER_API_KEY is set in your environment or a .env file.
-    # You can create a .env file with:
-    # OPENROUTER_API_KEY="your_actual_api_key_here"
-    # MAX_BUDGET_USD=5.0
-    # JUDGE_MODEL_NAME="mistralai/mistral-small-latest" # Cheaper judge for testing
-
     logger.info("Starting main.py test run using __main__ block.")
 
-    # Create dummy prompt files if they don't exist, for the main test to run smoothly
     Path("src/prompts").mkdir(parents=True, exist_ok=True)
     benchmark_prompt_path = Path("src/prompts/benchmark_prompt.md")
     judge_prompt_path = Path("src/prompts/judge_checklist.md")
@@ -229,19 +232,15 @@ Gib deine Bewertung als JSON-Objekt zurück. Beispiel:
         )
         logger.info(f"Created dummy judge prompt at {judge_prompt_path}")
 
-    # Define test parameters
     test_run_id_main = f"main_test_run_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
-    # Using a very cheap or free model for testing the pipeline
-    # test_models = ["mistralai/mistral-tiny", "nousresearch/nous-capybara-7b"]
-    test_models = ["mistralai/mistral-7b-instruct"] # Often available and performs okay for structure tests
-    # test_models = ["openai/gpt-3.5-turbo"] # If you have OpenAI credits
+    test_models = ["mistralai/mistral-7b-instruct"] 
 
     try:
         asyncio.run(run_benchmark(
             run_id=test_run_id_main,
             models_to_run=test_models,
-            num_runs_per_model=2, # Generate 2 jokes per model
-            base_output_dir_str="benchmarks_main_output" # Separate output for these tests
+            num_runs_per_model=2, 
+            base_output_dir_str="benchmarks_main_output" 
         ))
     except Exception as e:
         logger.critical(f"Error running benchmark from __main__: {e}", exc_info=True)
