@@ -35,8 +35,9 @@ def format_judge_prompt(template: str, summary: Summary, full_response: str) -> 
     Formats the judge prompt template with the summary's 'gewuenscht' and 'bekommen'
     values, and the full LLM response.
     """
-    prompt = template.replace("[WUNSCH: aus der Antwort extrahiert]", f"WUNSCH: {summary.gewuenscht}")
-    prompt = prompt.replace("[ERGEBNIS: aus der Antwort extrahiert]", f"ERGEBNIS: {summary.bekommen}")
+    # Ensure these placeholder strings EXACTLY match those in your judge_checklist.md
+    prompt = template.replace("[Was sich der Gast von der Hexe wünscht – wird hier automatisch eingefügt]", f"WUNSCH: {summary.gewuenscht}")
+    prompt = prompt.replace("[Was er stattdessen bekommt – wird hier automatisch eingefügt]", f"ERGEBNIS: {summary.bekommen}")
     prompt = prompt.replace("[VOLLSTAENDIGE ANTWORT DES GETESTETEN MODELLS: hier die komplette Antwort des LLMs einfügen]",
                             f"VOLLSTAENDIGE ANTWORT DES GETESTETEN MODELLS:\n```text\n{full_response}\n```")
     return prompt
