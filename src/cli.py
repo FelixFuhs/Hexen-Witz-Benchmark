@@ -2,6 +2,7 @@ import asyncio
 import logging
 import typer
 from typing import List, Optional
+from pathlib import Path
 
 # Assuming src.main and its dependencies are structured to be importable
 from src.main import run_benchmark
