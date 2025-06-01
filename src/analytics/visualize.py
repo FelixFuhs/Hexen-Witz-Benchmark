@@ -7,9 +7,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 
-# Assuming src.storage.database might have create_connection, but for read-only, a local one is fine.
-# from src.storage.database import create_connection as create_rw_connection
-
 logger = logging.getLogger(__name__)
 
 def _get_db_connection(db_path_str: str) -> Optional[sqlite3.Connection]:
@@ -131,7 +128,6 @@ def save_figure(fig: go.Figure, run_id: str, filename_base: str, base_output_dir
     """
     Saves a Plotly figure as HTML and PNG.
     """
-    # The output directory structure for plots should be <base_output_dir_str>/<run_id>/plots/
     plots_output_path = Path(base_output_dir_str) / run_id / "plots"
     try:
         plots_output_path.mkdir(parents=True, exist_ok=True)
@@ -146,9 +142,9 @@ def save_figure(fig: go.Figure, run_id: str, filename_base: str, base_output_dir
         fig.write_html(str(html_path))
         logger.info(f"Saved plot to {html_path}")
         try:
-            fig.write_image(str(png_path), scale=2) # Increased scale for better resolution
+            fig.write_image(str(png_path), scale=2) 
             logger.info(f"Saved plot to {png_path}")
-        except Exception as e_img: # Catch specific errors from write_image (e.g., Kaleido not found/working)
+        except Exception as e_img: 
             logger.error(f"Error saving plot to static image {png_path}: {e_img}. "
                          "Ensure Kaleido is installed and working correctly. HTML version might still be available.", exc_info=True)
     except Exception as e_html:
@@ -172,26 +168,17 @@ def generate_standard_visualizations(run_id: str, base_benchmark_dir: str) -> No
     try:
         records_df = _fetch_data_from_db(conn, run_id)
         if not records_df.empty:
-            # Boxplot for 'gesamt' scores
             fig_boxplot_gesamt = create_scores_boxplot(
                 records_df, score_column='gesamt', title_prefix=f"Run {run_id}: "
             )
             if fig_boxplot_gesamt:
                 save_figure(fig_boxplot_gesamt, run_id, "scores_gesamt_boxplot", base_benchmark_dir)
 
-            # Boxplot for 'phonetische_aehnlichkeit' scores
             fig_boxplot_phon = create_scores_boxplot(
                 records_df, score_column='phonetische_aehnlichkeit', title_prefix=f"Run {run_id}: "
             )
             if fig_boxplot_phon:
                 save_figure(fig_boxplot_phon, run_id, "scores_phonetische_aehnlichkeit_boxplot", base_benchmark_dir)
-
-            # Add more boxplots for other score columns if desired
-            # score_columns_to_plot = ['anzueglichkeit', 'logik', 'kreativitaet']
-            # for sc_col in score_columns_to_plot:
-            #    fig_bp = create_scores_boxplot(records_df, score_column=sc_col, title_prefix=f"Run {run_id}: ")
-            #    if fig_bp: save_figure(fig_bp, run_id, f"scores_{sc_col}_boxplot", base_benchmark_dir)
-
         else:
             logger.warning(f"No records found in DB for run_id {run_id} to generate score plots.")
     except Exception as e:
@@ -200,7 +187,6 @@ def generate_standard_visualizations(run_id: str, base_benchmark_dir: str) -> No
         logger.debug(f"Closing DB connection for run {run_id} visualizations.")
         conn.close()
 
-    # Process cost report
     cost_csv_file = Path(cost_csv_path_str)
     if cost_csv_file.exists():
         try:
@@ -222,26 +208,17 @@ def generate_standard_visualizations(run_id: str, base_benchmark_dir: str) -> No
 
 
 if __name__ == "__main__":
-    # This block is for testing the visualize.py script directly.
-    # It requires a benchmark run to have already completed and its output (DB and CSV) to exist.
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-    # --- !!! IMPORTANT !!! ---
-    # Replace this with an ACTUAL run_id from your benchmark_outputs directory for testing.
-    # For example, if you have 'benchmarks_output/run_20231026_120000', use that run_id.
-    test_run_id_to_visualize = "test_run_CHANGE_ME"
-    test_base_output_dir = "benchmarks_output" # Or wherever your main output is
+    test_run_id_to_visualize = "test_run_CHANGE_ME" 
+    test_base_output_dir = "benchmarks_output" 
 
-    # Check if a dummy run_id is still set
     if "CHANGE_ME" in test_run_id_to_visualize:
         logger.warning("Please update 'test_run_id_to_visualize' in visualize.py's __main__ block "
                        "to an actual run_id from your benchmark outputs to test visualizations.")
-        # Example: Find the most recent run_id in the test_base_output_dir
         try:
             p = Path(test_base_output_dir)
             if p.exists():
-                # Get all subdirectories (potential run_ids) and find the latest by name (timestamp based)
-                # This is a heuristic and might not always be correct if run_ids are not timestamped.
                 potential_runs = sorted([d.name for d in p.iterdir() if d.is_dir() and d.name.startswith("run_")])
                 if potential_runs:
                     test_run_id_to_visualize = potential_runs[-1]
@@ -264,4 +241,3 @@ if __name__ == "__main__":
     else:
         logger.error(f"Test run directory '{Path(test_base_output_dir, test_run_id_to_visualize)}' not found or "
                        "test_run_id_to_visualize is still a placeholder. Skipping __main__ test for visualize.py.")
-
