@@ -6,28 +6,17 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from src.router_client import RouterClient
-from src.models import GenerationResult, JudgeScore, Summary
-from src.config import Settings # For main_test example
-from datetime import datetime, timezone # For main_test example
-import asyncio # For main_test example
+from src.router_client import RouterClient # Assuming OpenRouterResponse is implicitly handled if not directly imported
+from src.models import GenerationResult, JudgeScore, Summary # OpenRouterResponse is defined in models.py
+from src.config import Settings 
+from datetime import datetime, timezone 
+import asyncio 
 
 logger = logging.getLogger(__name__)
 
 def load_judge_prompt_template(file_path: str = "src/prompts/judge_checklist.md") -> str:
     """
     Loads the content of the judge checklist file.
-    This content will serve as a template.
-
-    Args:
-        file_path: The path to the judge prompt template file.
-
-    Returns:
-        The content of the template file as a string.
-
-    Raises:
-        FileNotFoundError: If the template file cannot be found.
-        Exception: For other I/O errors.
     """
     try:
         template_path = Path(file_path)
@@ -45,20 +34,7 @@ def format_judge_prompt(template: str, summary: Summary, full_response: str) -> 
     """
     Formats the judge prompt template with the summary's 'gewuenscht' and 'bekommen'
     values, and the full LLM response.
-
-    Args:
-        template: The judge prompt template string.
-        summary: The Summary object containing 'gewuenscht' and 'bekommen'.
-        full_response: The full text response from the generation LLM.
-
-    Returns:
-        The formatted prompt string.
     """
-    # Placeholders identified in the example `judge_checklist.md` from the spec.
-    # WUNSCH: [aus der Antwort extrahiert]
-    # ERGEBNIS: [aus der Antwort extrahiert]
-    # VOLLSTAENDIGE ANTWORT DES GETESTETEN MODELLS: [hier die komplette Antwort des LLMs einfügen]
-
     prompt = template.replace("[WUNSCH: aus der Antwort extrahiert]", f"WUNSCH: {summary.gewuenscht}")
     prompt = prompt.replace("[ERGEBNIS: aus der Antwort extrahiert]", f"ERGEBNIS: {summary.bekommen}")
     prompt = prompt.replace("[VOLLSTAENDIGE ANTWORT DES GETESTETEN MODELLS: hier die komplette Antwort des LLMs einfügen]",
@@ -83,7 +59,6 @@ async def judge_response(
         return None
 
     current_summary = generation_result.summary
-    # Pass the full response to the formatter as well, as per the template placeholders
     formatted_prompt = format_judge_prompt(judge_prompt_template, current_summary, generation_result.full_response)
 
     logger.info(
@@ -92,6 +67,7 @@ async def judge_response(
     )
 
     try:
+        # judge_llm_response will be an OpenRouterResponse TypedDict
         judge_llm_response = await router_client.chat(
             model=judge_model_name, prompt=formatted_prompt, temperature=temperature
         )
@@ -103,35 +79,24 @@ async def judge_response(
         )
         return None
 
-    raw_judge_text = judge_llm_response.text
+    # Use dictionary key access for TypedDict
+    raw_judge_text = judge_llm_response['text'] # MODIFIED LINE
     logger.debug(f"Raw response from judge LLM {judge_model_name} for "
                  f"{generation_result.model} run {generation_result.run}: {raw_judge_text}")
 
     judge_data: Optional[Dict[str, Any]] = None
     try:
-        # Attempt to find JSON block if the LLM wraps it in text, e.g. ```json ... ```
-        # Regex to find content within ```json ... ```, tolerating optional "json" language tag.
         json_match = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", raw_judge_text, re.IGNORECASE)
         json_str: str
         if json_match:
             json_str = json_match.group(1)
             logger.debug(f"Extracted JSON block from judge response: {json_str}")
         else:
-            # If no markdown code block, assume the whole response is JSON or needs to be parsed as such.
-            # This might be risky if the LLM adds conversational fluff without markdown.
-            # For robustness, one might try to find the first '{' and last '}' if no block is found.
             json_str = raw_judge_text
             logger.debug("No JSON block found, attempting to parse entire judge response as JSON.")
 
         judge_data = json.loads(json_str)
-
-        # Ensure 'flags' list exists in judge_data before Pydantic validation if it's optional
-        # or if we want to pre-populate it.
-        # However, our model has `flags: List[str] = Field(default_factory=list)`,
-        # so Pydantic will create it if missing. The validators need to access `info.data['flags']`
-        # which refers to the input data. So, if 'flags' is not in the input data from the LLM,
-        # the validator won't be able to append to it during the initial parsing from this dict.
-        # Let's ensure 'flags' is present in the dict passed to Pydantic.
+        
         if 'flags' not in judge_data:
             judge_data['flags'] = []
 
@@ -149,10 +114,6 @@ async def judge_response(
         )
         return None
     except ValidationError as e:
-        # This will catch validation errors if fields are missing, wrong type,
-        # or if clamping validators were not used and ge/le fields were still in place.
-        # Since clamping is done by validators, a ValidationError here means something else is wrong
-        # (e.g. missing 'begruendung', wrong type for a field not covered by clamping).
         error_details = e.errors()
         logger.error(
             f"Validation error for JudgeScore from judge LLM for {generation_result.model} "
@@ -173,17 +134,14 @@ async def main_test_judge():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     logger.info("Starting judge test run...")
 
-    # Create a dummy judge checklist file for testing
     dummy_judge_file = Path("src/prompts/judge_checklist.md")
     dummy_judge_file.parent.mkdir(parents=True, exist_ok=True)
-    if not dummy_judge_file.exists() or dummy_judge_file.read_text().strip() == "":
+    if not dummy_judge_file.exists() or dummy_judge_file.read_text(encoding="utf-8").strip() == "":
         dummy_judge_file.write_text(
             """Bewerte die phonetische Ähnlichkeit und den Witz der folgenden Antwort.
 WUNSCH: [aus der Antwort extrahiert]
 ERGEBNIS: [aus der Antwort extrahiert]
-
 VOLLSTAENDIGE ANTWORT DES GETESTETEN MODELLS: [hier die komplette Antwort des LLMs einfügen]
-
 Gib deine Bewertung als JSON-Objekt mit den folgenden Feldern zurück:
 - phonetische_aehnlichkeit (0-35)
 - anzueglichkeit (0-25)
@@ -191,7 +149,6 @@ Gib deine Bewertung als JSON-Objekt mit den folgenden Feldern zurück:
 - kreativitaet (0-20)
 - gesamt (0-100)
 - begruendung (ein Dictionary mit Schlüsseln für jede Kategorie und Text als Wert)
-
 Beispiel-JSON:
 ```json
 {
@@ -244,14 +201,12 @@ Beispiel-JSON:
         summary=sample_summary,
         full_response="Die Bank sagte, sie hätten nur noch zwei Melonen, aber immerhin mit kleinen Schweinen drauf!",
         prompt_tokens=10,
-        completion_tokens=20, # Corrected field name
+        completion_tokens=20, 
+        cost_usd=0.0001, # Added cost_usd for GenerationResult initialization
         timestamp=datetime.now(timezone.utc)
     )
 
-    # Use a powerful model for judging if possible, e.g., "openai/gpt-4o", "anthropic/claude-3-opus-20240229"
-    # For testing, a smaller, faster model might be okay if it reliably returns JSON.
-    # judge_model_under_test = "openai/gpt-3.5-turbo"
-    judge_model_under_test = "mistralai/mistral-small-latest" # Often good at following JSON instructions
+    judge_model_under_test = "mistralai/mistral-small-latest"
 
     logger.info(f"Attempting to judge with model: {judge_model_under_test}")
 
@@ -261,7 +216,7 @@ Beispiel-JSON:
             generation_result=sample_gen_result,
             judge_model_name=judge_model_under_test,
             judge_prompt_template=judge_template_content,
-            temperature=0.0 # Low temperature for more deterministic JSON output
+            temperature=0.0 
         )
         if score:
             print("\n--- Judge Score ---")
@@ -271,16 +226,15 @@ Beispiel-JSON:
         else:
             print("Judging failed, was skipped, or returned no valid score.")
 
-        # Test clamping (manual example, LLM unlikely to give such extreme values if prompted correctly)
         print("\n--- Testing Clamping Logic (manual data) ---")
         manual_score_data_extreme = {
-            "phonetische_aehnlichkeit": 50, # > 35
-            "anzueglichkeit": -10, # < 0
+            "phonetische_aehnlichkeit": 50, 
+            "anzueglichkeit": -10, 
             "logik": 20,
-            "kreativitaet": 25, # > 20
-            "gesamt": 120, # > 100
+            "kreativitaet": 25, 
+            "gesamt": 120, 
             "begruendung": {"test": "extreme values"},
-            "flags": [] # Start with empty flags
+            "flags": [] 
         }
         try:
             clamped_score = JudgeScore(**manual_score_data_extreme)
@@ -288,7 +242,6 @@ Beispiel-JSON:
             print(clamped_score.model_dump_json(indent=2))
         except ValidationError as ve:
              print(f"ValidationError during manual clamping test: {ve}")
-
 
     except Exception as e:
         logger.error(f"An error occurred during the main_test_judge: {e}", exc_info=True)
