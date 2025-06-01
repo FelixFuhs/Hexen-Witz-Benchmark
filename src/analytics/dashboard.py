@@ -1,26 +1,35 @@
 import logging
 import sqlite3
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import streamlit as st
-from src.analytics.visualize import _get_db_connection, _fetch_data_from_db, create_scores_boxplot, create_cost_plot
+from src.analytics.visualize import (
+    _get_db_connection,
+    _fetch_data_from_db,
+    create_scores_boxplot,
+    create_cost_plot,
+    fetch_all_run_data,
+    calculate_global_leaderboard
+)
 import pandas as pd
+import plotly.express as px
 
 logger = logging.getLogger(__name__)
 
-def get_available_run_ids(base_benchmark_dir_str: str = "benchmarks_output") -> List[str]:
+def get_available_run_ids(base_benchmark_dir_str: str = "benchmarks_output") -> List[Tuple[str, str]]:
     """
-    Scans a directory for valid benchmark run IDs.
+    Scans a directory for valid benchmark run IDs and their directory paths.
     A run is considered valid if it has a corresponding SQLite database
     and that database contains records for that run_id.
+    Returns a list of tuples, where each tuple is (run_id, run_directory_path).
     """
     base_benchmark_dir = Path(base_benchmark_dir_str)
     if not base_benchmark_dir.exists() or not base_benchmark_dir.is_dir():
         logger.error(f"Base benchmark directory not found or is not a directory: {base_benchmark_dir_str}")
         return []
 
-    available_run_ids: List[str] = []
+    available_runs_with_paths: List[Tuple[str, str]] = []
     potential_run_dirs = [d for d in base_benchmark_dir.iterdir() if d.is_dir() and d.name.startswith("run_")]
 
     for run_dir in potential_run_dirs:
@@ -47,7 +56,7 @@ def get_available_run_ids(base_benchmark_dir_str: str = "benchmarks_output") -> 
             count = count_result[0]
             if count > 0:
                 logger.info(f"Run {run_id} has {count} records. Adding to available runs.")
-                available_run_ids.append(run_id)
+                available_runs_with_paths.append((run_id, str(run_dir)))
             else:
                 logger.info(f"Run {run_id} has no records in the database, skipping.")
 
@@ -62,9 +71,54 @@ def get_available_run_ids(base_benchmark_dir_str: str = "benchmarks_output") -> 
                 conn.close()
                 logger.debug(f"Closed database connection for run {run_id}.")
 
-    available_run_ids.sort(reverse=True)
-    logger.info(f"Found available run_ids: {available_run_ids}")
-    return available_run_ids
+    available_runs_with_paths.sort(key=lambda x: x[0], reverse=True)
+    logger.info(f"Found available runs with paths: {available_runs_with_paths}")
+    return available_runs_with_paths
+
+
+def display_global_leaderboard(available_runs_with_paths: List[Tuple[str, str]]):
+    """
+    Fetches data from all runs, calculates a global leaderboard, and displays it.
+    """
+    st.header("Global Model Leaderboard")
+    all_data_df = fetch_all_run_data(available_runs_with_paths)
+
+    if all_data_df.empty:
+        st.info("No data available from any benchmark runs to generate a global leaderboard.")
+        return
+
+    leaderboard_df = calculate_global_leaderboard(all_data_df)
+
+    if leaderboard_df.empty:
+        st.warning("Could not calculate the global leaderboard. Ensure there is valid 'gesamt' score data in the runs.")
+        return
+
+    # Create a horizontal bar chart for the leaderboard
+    try:
+        fig = px.bar(
+            leaderboard_df,
+            x='average_gesamt_score',
+            y='model',
+            orientation='h',
+            title="Average 'Gesamt' Score Across All Runs",
+            labels={'average_gesamt_score': "Average 'Gesamt' Score", 'model': 'Model'},
+            text='average_gesamt_score' # Display score on bars
+        )
+        fig.update_traces(texttemplate='%{text:.2f}', textposition='outside') # Format text
+        fig.update_layout(
+            yaxis={'categoryorder': 'total ascending'}, # Highest score at the top
+            xaxis_title="Average 'Gesamt' Score",
+            yaxis_title="Model"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        logger.error(f"Error generating leaderboard plot: {e}", exc_info=True)
+        st.error("Could not generate the leaderboard visualization.")
+
+    # Optionally, display the raw leaderboard data
+    with st.expander("View Leaderboard Data Table"):
+        st.dataframe(leaderboard_df)
+
 
 def main_dashboard():
     st.set_page_config(page_title="Benchmark Analytics Dashboard", layout="wide")
@@ -72,25 +126,33 @@ def main_dashboard():
 
     base_benchmark_dir = "benchmarks_output" # Or allow configuration if needed
 
-    available_runs = get_available_run_ids(base_benchmark_dir)
+    available_runs_with_paths = get_available_run_ids(base_benchmark_dir)
 
-    if not available_runs:
+    if not available_runs_with_paths:
         st.warning("No benchmark runs with analyzable data found. Please complete a benchmark run first.")
         return
 
-    st.sidebar.header("Run Selection")
-    selected_run_id = st.sidebar.selectbox(
+    # Display Global Leaderboard first
+    display_global_leaderboard(available_runs_with_paths)
+
+    # Then, allow selection of individual runs
+    st.sidebar.header("Individual Run Selection")
+    selected_run_details = st.sidebar.selectbox(
         "Select a Benchmark Run:",
-        options=available_runs,
+        options=available_runs_with_paths,
+        format_func=lambda x: x[0], # Display only the run_id
         help="Only runs with data in their database are listed."
     )
 
-    if selected_run_id:
+    if selected_run_details:
+        selected_run_id = selected_run_details[0]
+        selected_run_path_str = selected_run_details[1]
+
         st.header(f"Results for Run: {selected_run_id}")
 
-        run_path = Path(base_benchmark_dir) / selected_run_id
-        db_path_str = str(run_path / f"{selected_run_id}_benchmark_data.sqlite")
-        cost_csv_path_str = str(run_path / "cost_report.csv")
+        # Construct paths using selected_run_path_str and selected_run_id
+        db_path_str = str(Path(selected_run_path_str) / f"{selected_run_id}_benchmark_data.sqlite")
+        cost_csv_path_str = str(Path(selected_run_path_str) / "cost_report.csv")
 
         conn = _get_db_connection(db_path_str)
         if conn:
@@ -153,7 +215,7 @@ def main_dashboard():
         # This case might occur if available_runs is populated but selectbox somehow returns None,
         # or if available_runs was empty to begin with (though that's handled above).
         # For clarity, ensure a message is shown if no run is actively selected.
-        if available_runs: # Only show this if there were runs to select from
+        if available_runs_with_paths: # Only show this if there were runs to select from
             st.info("Please select a benchmark run from the sidebar to view results.")
 
 if __name__ == "__main__":
