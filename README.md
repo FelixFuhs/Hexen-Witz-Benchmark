@@ -55,9 +55,9 @@ The project aims to provide a standardized way to compare LLMs on this specific 
 
 2.  **Clone & Install**:
     ```bash
-    git clone https://github.com/tschuegge/schwerhoerige-hexe-benchmark.git
+    git clone https://github.com/tschuegge/Hexen-Witz-Benchmark.git
     # TODO: Verify this is the correct public repository URL after creation.
-    cd schwerhoerige-hexe-benchmark
+    cd Hexen-Witz-Benchmark
     poetry install
     ```
 
