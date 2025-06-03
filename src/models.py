@@ -1,6 +1,30 @@
-from pydantic import BaseModel, Field, field_validator, ValidationInfo
+from pydantic import BaseModel, Field
 from typing import TypedDict, Dict, Optional, List
 from datetime import datetime
+
+try:  # Compatibility with Pydantic v1
+    from pydantic import field_validator, ValidationInfo
+except ImportError:  # pragma: no cover - fallback for older Pydantic
+    from pydantic import validator as _validator
+
+    class ValidationInfo:  # type: ignore
+        """Minimal shim to mimic Pydantic v2 ValidationInfo."""
+
+        def __init__(self, data: Optional[dict] = None) -> None:
+            self.data = data or {}
+
+    def field_validator(*fields: str):  # type: ignore
+        """Backport-style field validator for Pydantic v1."""
+        def decorator(func):
+            @_validator(*fields, allow_reuse=True)
+            def wrapper(cls, v, values, **kwargs):  # type: ignore
+                info = ValidationInfo(values)
+                return func(cls, v, info)
+
+            return wrapper
+
+        return decorator
+
 
 class Summary(BaseModel):
     gewuenscht: str
