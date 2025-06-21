@@ -1,5 +1,11 @@
 # Environment variables
 .env
+.env.*
+.envrc
+
+# Local environment backups
+env.bak/
+venv.bak/
 
 # Poetry virtualenv
 .venv/
@@ -65,6 +71,13 @@ benchmarks_output_generator_test/ # From your generator.py example
 # Log files
 *.log
 logs/
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Local dataset or database files
+*.sqlite
+*.sqlite-journal
+
 
 # Other temporary files
 *.tmp
