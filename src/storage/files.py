@@ -1,234 +1,150 @@
-import json
+from __future__ import annotations
+
 import csv
-import logging
+import json
+import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
-from datetime import datetime, timezone 
-from typing import Dict, Any
+from typing import Any
 
-from src.models import GenerationResult, BenchmarkRecord
-from src.config import Settings 
+import boto3
+import pandas as pd
+import structlog
 
-logger = logging.getLogger(__name__)
-
-def ensure_dir_structure(run_id: str, base_path_str: str = "benchmarks") -> Path:
-    """
-    Ensures the necessary directory structure for a given run_id exists.
-    <base_path>/<run_id>/raw
-    <base_path>/<run_id>/judged
-    """
-    base_path = Path(base_path_str)
-    run_path = base_path / run_id
-    raw_path = run_path / "raw"
-    judged_path = run_path / "judged"
-
-    try:
-        raw_path.mkdir(parents=True, exist_ok=True)
-        judged_path.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Ensured directory structure for run_id {run_id} at {run_path}")
-        return run_path
-    except OSError as e:
-        logger.error(f"Failed to create directory structure for {run_id} at {run_path}: {e}")
-        raise 
+from ..config import Settings
+from ..models import BenchmarkRecord, GenerationResult
+from . import database
 
 
-def save_generation_result(result: GenerationResult, run_id: str, base_path_str: str = "benchmarks") -> None:
-    """
-    Saves a single GenerationResult to a JSON file in the raw directory.
-    Also appends its cost to the cost_report.csv.
-    """
-    try:
-        run_path = ensure_dir_structure(run_id, base_path_str)
-    except OSError:
-        logger.error(f"Cannot save GenerationResult for run_id {run_id} due to directory creation failure.")
-        return
-
-    raw_path = run_path / "raw"
-    safe_model_name = result.model.replace('/', '_').replace(':', '_')
-    file_name = f"{safe_model_name}_{result.run}.json" 
-    file_path = raw_path / file_name
-
-    try:
-        with file_path.open("w", encoding="utf-8") as f:
-            f.write(result.model_dump_json(indent=2))
-        logger.info(f"Saved GenerationResult to {file_path}")
-
-        _append_generation_cost_to_report(result, run_id, base_path_str)
-
-    except IOError as e:
-        logger.error(f"Failed to save GenerationResult to {file_path}: {e}")
-    except Exception as e:
-        logger.error(f"Unexpected error saving GenerationResult to {file_path}: {e}", exc_info=True)
+logger = structlog.get_logger(__name__)
 
 
-def save_benchmark_record(record: BenchmarkRecord, run_id: str, base_path_str: str = "benchmarks") -> None:
-    """Saves a single BenchmarkRecord to a JSON file in the judged directory."""
-    try:
-        run_path = ensure_dir_structure(run_id, base_path_str)
-    except OSError:
-        logger.error(f"Cannot save BenchmarkRecord for run_id {run_id} due to directory creation failure.")
-        return
-
-    judged_path = run_path / "judged"
-    safe_model_name = record.generation.model.replace('/', '_').replace(':', '_') # MODIFIED LINE
-    file_name = f"{safe_model_name}_{record.generation.run}.json" 
-    file_path = judged_path / file_name
-
-    try:
-        with file_path.open("w", encoding="utf-8") as f:
-            f.write(record.model_dump_json(indent=2))
-        logger.info(f"Saved BenchmarkRecord to {file_path}")
-    except IOError as e:
-        logger.error(f"Failed to save BenchmarkRecord to {file_path}: {e}")
-    except Exception as e:
-        logger.error(f"Unexpected error saving BenchmarkRecord to {file_path}: {e}", exc_info=True)
+def _run_path(settings: Settings, run_id: str) -> Path:
+    base = settings.resolved_base_path()
+    run_path = base / run_id
+    (run_path / "raw").mkdir(parents=True, exist_ok=True)
+    (run_path / "judged").mkdir(parents=True, exist_ok=True)
+    return run_path
 
 
-def _append_generation_cost_to_report(
-    result: GenerationResult, run_id: str, base_path_str: str = "benchmarks"
-) -> None:
-    """
-    Appends cost information from a GenerationResult to the cost_report.csv for the run.
-    This is an internal helper called by save_generation_result.
-    """
-    try:
-        run_path = Path(base_path_str) / run_id
-        if not run_path.exists(): 
-             logger.warning(f"Run path {run_path} does not exist for cost report. Attempting to create.")
-             ensure_dir_structure(run_id, base_path_str)
-
-    except OSError: 
-        logger.error(f"Cannot append to cost report for run_id {run_id} due to directory issue.")
-        return
+def _safe_model_filename(model: str, run_number: int) -> str:
+    safe_model = model.replace("/", "_").replace(":", "_")
+    return f"{safe_model}_{run_number}.json"
 
 
-    report_path = run_path / "cost_report.csv"
-    file_exists = report_path.exists()
-
-    try:
-        with report_path.open("a", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            if not file_exists:
-                writer.writerow(["timestamp", "run_id", "model", "run_num", "cost_usd", "prompt_tokens", "completion_tokens"])
-            writer.writerow([
+def _update_cost_report(settings: Settings, run_id: str, result: GenerationResult) -> None:
+    run_path = _run_path(settings, run_id)
+    cost_path = run_path / "cost_report.csv"
+    file_exists = cost_path.exists()
+    with cost_path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        if not file_exists:
+            writer.writerow(
+                [
+                    "timestamp",
+                    "run_id",
+                    "model",
+                    "run",
+                    "cost_usd",
+                    "prompt_tokens",
+                    "completion_tokens",
+                ]
+            )
+        writer.writerow(
+            [
                 result.timestamp.isoformat(),
                 run_id,
                 result.model,
                 result.run,
-                f"{result.cost_usd:.8f}", 
+                f"{result.cost_usd:.8f}",
                 result.prompt_tokens,
-                result.completion_tokens
-            ])
-    except IOError as e:
-        logger.error(f"Failed to append to cost report {report_path}: {e}")
-    except Exception as e:
-        logger.error(f"Unexpected error appending to cost report {report_path}: {e}", exc_info=True)
+                result.completion_tokens,
+            ]
+        )
 
 
-def write_meta_json(
-    run_id: str, config_settings: Dict[str, Any], base_path_str: str = "benchmarks"
-) -> None:
-    """Writes a meta.json file for the run, including run_id and configuration settings."""
-    try:
-        run_path = ensure_dir_structure(run_id, base_path_str)
-    except OSError:
-        logger.error(f"Cannot write meta.json for run_id {run_id} due to directory creation failure.")
+def _parquet_path(settings: Settings, run_id: str) -> Path:
+    return _run_path(settings, run_id) / settings.storage.parquet_filename
+
+
+def _update_parquet(settings: Settings, run_id: str, record: BenchmarkRecord) -> None:
+    path = _parquet_path(settings, run_id)
+    df = pd.DataFrame(
+        [
+            {
+                "run_id": run_id,
+                "model": record.generation.model,
+                "run": record.generation.run,
+                "gewuenscht": record.generation.summary.gewuenscht,
+                "bekommen": record.generation.summary.bekommen,
+                "phonetische_aehnlichkeit": record.judge.phonetische_aehnlichkeit,
+                "anzueglichkeit": record.judge.anzueglichkeit,
+                "logik": record.judge.logik,
+                "kreativitaet": record.judge.kreativitaet,
+                "gesamt": record.judge.gesamt,
+                "prompt_tokens": record.generation.prompt_tokens,
+                "completion_tokens": record.generation.completion_tokens,
+                "cost_usd": record.generation.cost_usd,
+                "timestamp": record.generation.timestamp,
+            }
+        ]
+    )
+    if path.exists():
+        existing = pd.read_parquet(path)
+        df = pd.concat([existing, df], ignore_index=True)
+    df.to_parquet(path, index=False)
+
+
+def _upload_to_s3(settings: Settings, run_id: str, path: Path) -> None:
+    if not settings.storage.enable_s3 or not settings.storage.s3_bucket:
         return
-
-    meta_path = run_path / "meta.json"
-
-    serializable_config = {}
-    for k, v in config_settings.items():
-        if hasattr(v, 'model_dump'): 
-            serializable_config[k] = v.model_dump()
-        elif isinstance(v, (str, int, float, bool, list, dict, type(None))):
-            serializable_config[k] = v
-        else:
-            try:
-                serializable_config[k] = str(v)
-                logger.warning(f"Configuration value for key '{k}' was converted to string for meta.json serialization.")
-            except Exception:
-                logger.error(f"Configuration value for key '{k}' is not JSON serializable and could not be converted to string.")
-                serializable_config[k] = "NOT_SERIALIZABLE"
+    client = boto3.client("s3")
+    key = f"{settings.storage.s3_prefix}{run_id}/{path.name}"
+    client.upload_file(str(path), settings.storage.s3_bucket, key)
+    logger.info("uploaded_to_s3", bucket=settings.storage.s3_bucket, key=key)
 
 
-    data_to_write = {
-        "run_id": run_id,
-        "creation_timestamp_utc": datetime.now(timezone.utc).isoformat(),
-        "config_settings": serializable_config,
-    }
+def save_generation_result(*, result: GenerationResult, run_id: str, settings: Settings) -> Path:
+    run_path = _run_path(settings, run_id)
+    file_path = run_path / "raw" / _safe_model_filename(result.model, result.run)
+    file_path.write_text(result.model_dump_json(indent=2), encoding="utf-8")
+    checksum = hashlib.sha256(file_path.read_bytes()).hexdigest()
+    logger.info("generation_saved", path=str(file_path), checksum=checksum)
+    _update_cost_report(settings, run_id, result)
+    _upload_to_s3(settings, run_id, file_path)
+    return file_path
 
+
+def save_benchmark_record(*, record: BenchmarkRecord, run_id: str, settings: Settings) -> Path:
+    run_path = _run_path(settings, run_id)
+    file_path = run_path / "judged" / _safe_model_filename(record.generation.model, record.generation.run)
+    file_path.write_text(record.model_dump_json(indent=2), encoding="utf-8")
+    checksum = hashlib.sha256(file_path.read_bytes()).hexdigest()
+    logger.info("benchmark_saved", path=str(file_path), checksum=checksum)
+    _update_parquet(settings, run_id, record)
+    conn = database.connect(settings, run_id)
     try:
-        with meta_path.open("w", encoding="utf-8") as f:
-            json.dump(data_to_write, f, indent=2)
-        logger.info(f"Saved meta.json to {meta_path}")
-    except IOError as e:
-        logger.error(f"Failed to save meta.json to {meta_path}: {e}")
-    except TypeError as e: 
-        logger.error(f"Failed to serialize data for meta.json: {e}. Data: {data_to_write}", exc_info=True)
-    except Exception as e:
-        logger.error(f"Unexpected error saving meta.json to {meta_path}: {e}", exc_info=True)
+        database.ensure_schema(conn)
+        database.upsert_record(conn, run_id, record)
+    finally:
+        conn.close()
+    _upload_to_s3(settings, run_id, file_path)
+    _upload_to_s3(settings, run_id, _parquet_path(settings, run_id))
+    return file_path
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-    test_run_id = f"test_run_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
-
-    sample_gen_result = GenerationResult(
-        model="test_model/v1",
-        run=1,
-        summary=None, 
-        full_response="This is a test response.",
-        prompt_tokens=10,
-        completion_tokens=5,
-        cost_usd=0.000123,
-        timestamp=datetime.now(timezone.utc)
-    )
-    save_generation_result(sample_gen_result, test_run_id)
-
-    sample_gen_result_run2 = GenerationResult(
-        model="another_model/v2",
-        run=2, 
-        summary=None,
-        full_response="Another test response.",
-        prompt_tokens=15,
-        completion_tokens=8,
-        cost_usd=0.000456,
-        timestamp=datetime.now(timezone.utc)
-    )
-    save_generation_result(sample_gen_result_run2, test_run_id)
-
-    from src.models import JudgeScore, Summary 
-    sample_judge_score = JudgeScore(
-        phonetische_aehnlichkeit=10,
-        anzueglichkeit=5,
-        logik=10,
-        kreativitaet=10,
-        gesamt=35,
-        begruendung={"test": "good"},
-        flags=[]
-    )
-    sample_benchmark_record = BenchmarkRecord(
-        generation=sample_gen_result, 
-        judge=sample_judge_score
-    )
-    save_benchmark_record(sample_benchmark_record, test_run_id)
-
-    class DummyNonSerializable:
-        pass
-
-    sample_config = {
-        "llm_model": "test_model/v1",
-        "num_runs": 10,
-        "temperature": 0.7,
-        "judge_llm": "judge_model/v1",
-        "max_budget": 100.0,
-        "complex_setting": Settings(OPENROUTER_API_KEY="dummy", MAX_BUDGET_USD=50.0), 
-        "non_serializable_item": DummyNonSerializable() 
+def write_meta_json(*, run_id: str, settings: Settings) -> Path:
+    run_path = _run_path(settings, run_id)
+    meta_path = run_path / "meta.json"
+    config_payload = settings.model_dump(mode="json", exclude={"openrouter_api_key"})
+    payload: dict[str, Any] = {
+        "run_id": run_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "config": config_payload,
     }
-    write_meta_json(test_run_id, sample_config)
+    meta_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    _upload_to_s3(settings, run_id, meta_path)
+    return meta_path
 
-    print(f"Test files generated in benchmarks/{test_run_id}")
-    print(f"Check benchmarks/{test_run_id}/raw/ for generation results.")
-    print(f"Check benchmarks/{test_run_id}/judged/ for benchmark records.")
-    print(f"Check benchmarks/{test_run_id}/cost_report.csv for cost details.")
-    print(f"Check benchmarks/{test_run_id}/meta.json for run metadata.")
+
+__all__ = ["save_generation_result", "save_benchmark_record", "write_meta_json"]

@@ -1,4 +1,4 @@
-import logging
+import structlog
 import sqlite3
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
@@ -7,7 +7,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 def _get_db_connection(db_path_str: str) -> Optional[sqlite3.Connection]:
     """
