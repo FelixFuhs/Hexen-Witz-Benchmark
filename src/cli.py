@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 from typing import Iterable, Optional
 
+import anyio
 import pandas as pd
 import structlog
 import typer
@@ -60,32 +61,30 @@ def resume(
     judged_dir = run_path / "judged"
     if not raw_dir.exists():
         raise typer.BadParameter(f"no raw results found for run {run_id}")
-    client = RouterClient(settings)
     template = load_judge_prompt(Path("src/prompts/judge_checklist.md"))
-    try:
-        for raw_file in sorted(raw_dir.glob("*.json")):
-            judged_file = judged_dir / raw_file.name
-            if judged_file.exists():
-                continue
-            payload = json.loads(raw_file.read_text(encoding="utf-8"))
-            generation = GenerationResult.model_validate(payload)
-            judge_and_store_kwargs = dict(
-                client=client,
-                generation=generation,
-                judge_model=settings.judge_model_name,
-                template=template,
-                run_id=run_id,
-                settings=settings,
-            )
-            typer.echo(f"Judging {generation.model} run {generation.run} ...")
-            # run async call
-            from anyio import run as anyio_run
 
-            anyio_run(judge_and_store, **judge_and_store_kwargs)
-    finally:
-        from anyio import run as anyio_run
+    async def _resume() -> None:
+        client = RouterClient(settings)
+        try:
+            for raw_file in sorted(raw_dir.glob("*.json")):
+                judged_file = judged_dir / raw_file.name
+                if judged_file.exists():
+                    continue
+                payload = json.loads(raw_file.read_text(encoding="utf-8"))
+                generation = GenerationResult.model_validate(payload)
+                typer.echo(f"Judging {generation.model} run {generation.run} ...")
+                await judge_and_store(
+                    client=client,
+                    generation=generation,
+                    judge_model=settings.judge_model_name,
+                    template=template,
+                    run_id=run_id,
+                    settings=settings,
+                )
+        finally:
+            await client.close()
 
-        anyio_run(client.close)
+    anyio.run(_resume)
 
 
 @app.command()

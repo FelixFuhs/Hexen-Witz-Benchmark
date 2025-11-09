@@ -63,6 +63,7 @@ class RouterClient:
         self._global_limit = settings.rate_limit.global_requests_per_minute
         self._cumulative_cost = 0.0
         self._window_lock = anyio.Lock()
+        self._budget_lock = anyio.Lock()
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -102,8 +103,9 @@ class RouterClient:
         return 0.0
 
     async def chat(self, *, model: str, prompt: str, temperature: float) -> OpenRouterResponse:
-        if self._cumulative_cost >= self._settings.budget.max_budget_usd:
-            raise BudgetExceededError("Budget exhausted")
+        async with self._budget_lock:
+            if self._cumulative_cost >= self._settings.budget.max_budget_usd:
+                raise BudgetExceededError("Budget exhausted")
 
         async with self._model_semaphores[model]:
             await self._respect_global_rate_limit()
@@ -175,11 +177,14 @@ class RouterClient:
                 completion_tokens = int(usage.get("completion_tokens", 0))
                 cost = await self._calculate_cost(model, response, prompt_tokens, completion_tokens)
 
-                self._cumulative_cost += cost
-                if self._cumulative_cost > self._settings.budget.max_budget_usd:
-                    logger.warning("budget_threshold_crossed", cumulative_cost=self._cumulative_cost)
-                elif self._cumulative_cost > self._settings.budget.max_budget_usd * self._settings.budget.warn_at_fraction:
-                    logger.info("budget_warning", cumulative_cost=self._cumulative_cost)
+                async with self._budget_lock:
+                    self._cumulative_cost += cost
+                    cumulative_cost = self._cumulative_cost
+
+                if cumulative_cost > self._settings.budget.max_budget_usd:
+                    logger.warning("budget_threshold_crossed", cumulative_cost=cumulative_cost)
+                elif cumulative_cost > self._settings.budget.max_budget_usd * self._settings.budget.warn_at_fraction:
+                    logger.info("budget_warning", cumulative_cost=cumulative_cost)
 
                 return OpenRouterResponse(
                     text=text,
