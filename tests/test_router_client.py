@@ -1,34 +1,35 @@
 import pytest
-import httpx
-# from pytest_httpx import HTTPXMock # This will be available once pytest-httpx is installed
-from src.router_client import (
-    RouterClient,
-    RateLimitError,
-    ServerError,
-    BudgetExceededError,
-    ConnectionError,
-    ParseError,
-    RouterClientError,
-)
+from pytest_httpx import HTTPXMock
+
 from src.config import Settings
-from src.models import OpenRouterResponse
+from src.router_client import BudgetExceededError, RouterClient
 
-# Placeholder for OPENROUTER_API_KEY for Settings
-# In actual tests, this would be mocked or a test-specific .env used.
-TEST_SETTINGS = Settings(OPENROUTER_API_KEY="test_dummy_key", MAX_BUDGET_USD=10.0)
 
-# Tests for RouterClient will be implemented here.
-# Example ideas:
-# - Fixture for RouterClient instance.
-# - Test successful chat call with mocked 200 response.
-# - Test rate limit handling (429 response, retries, RateLimitError).
-# - Test server error handling (5xx response, retries, ServerError).
-# - Test connection error handling (httpx.RequestError, retries, ConnectionError).
-# - Test budget exceeded error (initial check and during cost accumulation).
-# - Test parsing of valid and invalid/malformed JSON responses (ParseError).
-# - Test cost calculation from headers and fallback.
-# - Test model-specific semaphores (concurrency).
-# - Test global rate limiting behavior (though this might be harder to test precisely without complex time mocking).
-# - Test client.close() behavior.
-# - Test authentication errors (401, 403).
-# - Test other HTTP errors (e.g. 400 Bad Request).
+@pytest.mark.asyncio
+async def test_chat_success(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(
+        method="POST",
+        url="https://openrouter.ai/api/v1/chat/completions",
+        json={
+            "choices": [{"message": {"content": "Hallo"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        },
+        headers={"x-openrouter-price": "0.01"},
+    )
+    settings = Settings(OPENROUTER_API_KEY="test-key")
+    client = RouterClient(settings)
+    response = await client.chat(model="test/model", prompt="hi", temperature=0.5)
+    await client.close()
+    assert response["text"] == "Hallo"
+    assert response["prompt_tokens"] == 10
+    assert pytest.approx(response["cost_usd"], rel=1e-5) == 0.00015
+
+
+@pytest.mark.asyncio
+async def test_chat_budget_guard(httpx_mock: HTTPXMock) -> None:
+    settings = Settings(OPENROUTER_API_KEY="test-key", budget={"max_budget_usd": 0.0})
+    client = RouterClient(settings)
+    with pytest.raises(BudgetExceededError):
+        await client.chat(model="test/model", prompt="hi", temperature=0.5)
+    await client.close()
+    assert len(httpx_mock.get_requests()) == 0
