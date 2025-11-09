@@ -177,13 +177,22 @@ class RouterClient:
                 completion_tokens = int(usage.get("completion_tokens", 0))
                 cost = await self._calculate_cost(model, response, prompt_tokens, completion_tokens)
 
+                max_budget = self._settings.budget.max_budget_usd
+                warn_fraction = self._settings.budget.warn_at_fraction
+
                 async with self._budget_lock:
                     self._cumulative_cost += cost
                     cumulative_cost = self._cumulative_cost
+                    exceeded_budget = cumulative_cost > max_budget
+                    warn_threshold = cumulative_cost > max_budget * warn_fraction
 
-                if cumulative_cost > self._settings.budget.max_budget_usd:
-                    logger.warning("budget_threshold_crossed", cumulative_cost=cumulative_cost)
-                elif cumulative_cost > self._settings.budget.max_budget_usd * self._settings.budget.warn_at_fraction:
+                if exceeded_budget:
+                    logger.warning(
+                        "budget_threshold_crossed", cumulative_cost=cumulative_cost
+                    )
+                    raise BudgetExceededError("Budget exhausted")
+
+                if warn_threshold:
                     logger.info("budget_warning", cumulative_cost=cumulative_cost)
 
                 return OpenRouterResponse(
