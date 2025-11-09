@@ -23,6 +23,8 @@ async def test_chat_success(httpx_mock: HTTPXMock) -> None:
     assert response["text"] == "Hallo"
     assert response["prompt_tokens"] == 10
     assert pytest.approx(response["cost_usd"], rel=1e-5) == 0.00015
+    request = httpx_mock.get_requests()[0]
+    assert request.headers["Authorization"] == "Bearer test-key"
 
 
 @pytest.mark.asyncio

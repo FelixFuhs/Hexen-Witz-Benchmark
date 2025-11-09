@@ -50,7 +50,12 @@ class RouterClient:
             write=settings.http.timeout_write,
             pool=settings.http.timeout_pool,
         )
-        self._client = httpx.AsyncClient(base_url=settings.http.base_url, timeout=timeout)
+        headers = {
+            "Authorization": f"Bearer {settings.openrouter_api_key}",
+        }
+        self._client = httpx.AsyncClient(
+            base_url=settings.http.base_url, timeout=timeout, headers=headers
+        )
         self._model_semaphores: Dict[str, anyio.Semaphore] = defaultdict(
             lambda: anyio.Semaphore(settings.rate_limit.per_model_concurrency)
         )
