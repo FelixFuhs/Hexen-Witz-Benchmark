@@ -108,7 +108,6 @@ class RouterClient:
                 raise BudgetExceededError("Budget exhausted")
 
         async with self._model_semaphores[model]:
-            await self._respect_global_rate_limit()
             payload = {
                 "model": model,
                 "messages": [{"role": "user", "content": prompt}],
@@ -125,6 +124,7 @@ class RouterClient:
             connection_started_at: Optional[float] = None
 
             for attempt in range(1, max_attempts + 1):
+                await self._respect_global_rate_limit()
                 try:
                     response = await self._client.post("/chat/completions", json=payload)
                 except httpx.RequestError as exc:
