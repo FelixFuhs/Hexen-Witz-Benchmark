@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -13,8 +12,8 @@ class ModelConfig(BaseModel):
     name: str
     temperature: float = Field(default=0.8, ge=0.0, le=2.0)
     top_p: float = Field(default=0.9, ge=0.0, le=1.0)
-    max_tokens: Optional[int] = Field(default=None, ge=1)
-    metadata: Dict[str, str] = Field(default_factory=dict)
+    max_tokens: int | None = Field(default=None, ge=1)
+    metadata: dict[str, str] = Field(default_factory=dict)
 
 
 class StorageConfig(BaseModel):
@@ -22,7 +21,7 @@ class StorageConfig(BaseModel):
 
     base_path: Path = Field(default=Path("benchmarks"))
     enable_s3: bool = False
-    s3_bucket: Optional[str] = None
+    s3_bucket: str | None = None
     s3_prefix: str = "hexe-bench/"
     parquet_filename: str = "combined.parquet"
     sqlite_filename_template: str = "{run_id}_benchmark_data.sqlite"
@@ -54,7 +53,7 @@ class Settings(BaseSettings):
     openrouter_api_key: str = Field(alias="OPENROUTER_API_KEY")
     run_name: str = Field(default="local-run")
     judge_model_name: str = Field(default="openai/gpt-4o", alias="JUDGE_MODEL_NAME")
-    candidate_models: List[ModelConfig] = Field(
+    candidate_models: list[ModelConfig] = Field(
         default_factory=lambda: [
             ModelConfig(name="mistralai/mistral-7b-instruct", temperature=0.8),
             ModelConfig(name="openai/gpt-4o-mini", temperature=0.6),
@@ -64,7 +63,7 @@ class Settings(BaseSettings):
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
     http: HttpConfig = Field(default_factory=HttpConfig)
-    price_overrides: Dict[str, float] = Field(default_factory=dict)
+    price_overrides: dict[str, float] = Field(default_factory=dict)
 
     def resolved_base_path(self) -> Path:
         base = self.storage.base_path

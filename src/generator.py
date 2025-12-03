@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, List
 
 import structlog
 
@@ -11,7 +11,6 @@ from .extractor import SummaryParseError, extract_summary
 from .models import GenerationResult, Summary
 from .router_client import RouterClient
 from .storage import files
-
 
 logger = structlog.get_logger(__name__)
 
@@ -61,8 +60,8 @@ async def run_model_generations(
     prompt: str,
     run_id: str,
     iterations: int,
-) -> List[GenerationResult]:
-    results: List[GenerationResult] = []
+) -> list[GenerationResult]:
+    results: list[GenerationResult] = []
     for index in range(1, iterations + 1):
         result = await generate_joke(client, model, prompt, index)
         results.append(result)
@@ -78,9 +77,9 @@ async def run_benchmark(
     prompt_path: Path,
     iterations: int,
     models: Iterable[ModelConfig] | None = None,
-) -> List[GenerationResult]:
+) -> list[GenerationResult]:
     prompt = load_benchmark_prompt(prompt_path)
-    all_results: List[GenerationResult] = []
+    all_results: list[GenerationResult] = []
     for model in models or settings.candidate_models:
         results = await run_model_generations(
             client=client,
@@ -95,4 +94,4 @@ async def run_benchmark(
     return all_results
 
 
-__all__ = ["generate_joke", "run_benchmark", "run_model_generations", "load_benchmark_prompt"]
+__all__ = ["generate_joke", "load_benchmark_prompt", "run_benchmark", "run_model_generations"]

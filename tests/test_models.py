@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
-import pytest
 from pydantic import ValidationError
+import pytest
 
 from src.models import BenchmarkRecord, GenerationResult, JudgeScore, Summary
 
