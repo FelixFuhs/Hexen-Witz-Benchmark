@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Dict, TypedDict
+from typing import TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -28,7 +28,7 @@ class JudgeScore(BaseModel):
     logik: int = Field(ge=0, le=20)
     kreativitaet: int = Field(ge=0, le=20)
     gesamt: int = Field(ge=0, le=100)
-    begruendung: Dict[str, str]
+    begruendung: dict[str, str]
     flags: list[str] = Field(default_factory=list)
 
 

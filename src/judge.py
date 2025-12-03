@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
+import re
 
 import structlog
 
@@ -10,7 +10,6 @@ from .config import Settings
 from .models import BenchmarkRecord, GenerationResult, JudgeScore
 from .router_client import RouterClient
 from .storage import files
-
 
 logger = structlog.get_logger(__name__)
 
@@ -59,8 +58,8 @@ def _clamp_scores(payload: dict) -> dict:
             continue
         try:
             numeric = int(value)
-        except (TypeError, ValueError):
-            raise ValueError(f"score '{key}' is not an integer")
+        except (TypeError, ValueError) as err:
+            raise ValueError(f"score '{key}' is not an integer") from err
         if numeric < lower:
             payload[key] = lower
             flags.append(f"{key}_clamped_min")
@@ -88,6 +87,10 @@ async def judge_generation(
     except json.JSONDecodeError as exc:
         logger.error("judge_json_decode_failed", error=str(exc), payload=response["text"][:200])
         raise
+    except ValueError as exc:
+        logger.error("judge_score_parsing_failed", error=str(exc))
+        raise
+
     clamped = _clamp_scores(parsed)
     if "begruendung" not in clamped:
         raise ValueError("judge response missing begruendung")
@@ -115,4 +118,4 @@ async def judge_and_store(
     return record
 
 
-__all__ = ["judge_generation", "judge_and_store", "format_judge_prompt", "load_judge_prompt"]
+__all__ = ["format_judge_prompt", "judge_and_store", "judge_generation", "load_judge_prompt"]

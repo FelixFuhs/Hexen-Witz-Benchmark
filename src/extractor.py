@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
+import re
 
 from rapidfuzz import fuzz
+
 import structlog
 
 from .models import Summary
-
 
 logger = structlog.get_logger(__name__)
 

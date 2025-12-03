@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 import json
 import logging
 from pathlib import Path
-from typing import Iterable, Optional
 
 import anyio
 import pandas as pd
@@ -16,7 +16,6 @@ from .main import run_sync
 from .models import GenerationResult
 from .router_client import RouterClient
 from .storage import database
-
 
 app = typer.Typer(help="Schwerhörige-Hexe Benchmark CLI")
 
@@ -37,25 +36,27 @@ def configure_logging(level: str) -> None:
 
 @app.command()
 def run(
-    model: Optional[Iterable[str]] = typer.Option(None, "--model", "-m"),
+    model: Iterable[str] | None = typer.Option(None, "--model", "-m"),
     iterations: int = typer.Option(1, "--iterations", "-n", min=1),
-    run_id: Optional[str] = typer.Option(None, "--run-id"),
-    config: Optional[Path] = typer.Option(None, "--config", exists=True, dir_okay=False),
+    run_id: str | None = typer.Option(None, "--run-id"),
+    config: Path | None = typer.Option(None, "--config", exists=True, dir_okay=False),
     log_level: str = typer.Option("info", "--log-level"),
 ) -> None:
     configure_logging(log_level.upper())
-    settings = Settings(_env_file=str(config)) if config else Settings()
+    # Note: _env_file is handled by pydantic-settings BaseSettings
+    settings = Settings(_env_file=str(config)) if config else Settings()  # type: ignore[call-arg]
     run_sync(settings=settings, run_id=run_id, model_names=model, iterations=iterations)
 
 
 @app.command()
 def resume(
     run_id: str = typer.Argument(..., help="Run identifier to resume"),
-    config: Optional[Path] = typer.Option(None, "--config", exists=True, dir_okay=False),
+    config: Path | None = typer.Option(None, "--config", exists=True, dir_okay=False),
     log_level: str = typer.Option("info", "--log-level"),
 ) -> None:
     configure_logging(log_level.upper())
-    settings = Settings(_env_file=str(config)) if config else Settings()
+    # Note: _env_file is handled by pydantic-settings BaseSettings
+    settings = Settings(_env_file=str(config)) if config else Settings()  # type: ignore[call-arg]
     run_path = settings.resolved_base_path() / run_id
     raw_dir = run_path / "raw"
     judged_dir = run_path / "judged"
@@ -90,9 +91,10 @@ def resume(
 @app.command()
 def stats(
     run_id: str = typer.Argument(..., help="Run identifier to inspect"),
-    config: Optional[Path] = typer.Option(None, "--config", exists=True, dir_okay=False),
+    config: Path | None = typer.Option(None, "--config", exists=True, dir_okay=False),
 ) -> None:
-    settings = Settings(_env_file=str(config)) if config else Settings()
+    # Note: _env_file is handled by pydantic-settings BaseSettings
+    settings = Settings(_env_file=str(config)) if config else Settings()  # type: ignore[call-arg]
     run_path = settings.resolved_base_path() / run_id
     parquet_path = run_path / settings.storage.parquet_filename
     if not parquet_path.exists():

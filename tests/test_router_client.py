@@ -1,7 +1,7 @@
 import pytest
 from pytest_httpx import HTTPXMock
 
-from src.config import Settings
+from src.config import BudgetConfig, Settings
 from src.router_client import BudgetExceededError, RouterClient
 
 
@@ -29,7 +29,7 @@ async def test_chat_success(httpx_mock: HTTPXMock) -> None:
 
 @pytest.mark.asyncio
 async def test_chat_budget_guard(httpx_mock: HTTPXMock) -> None:
-    settings = Settings(OPENROUTER_API_KEY="test-key", budget={"max_budget_usd": 0.0})
+    settings = Settings(OPENROUTER_API_KEY="test-key", budget=BudgetConfig(max_budget_usd=0.0))
     client = RouterClient(settings)
     with pytest.raises(BudgetExceededError):
         await client.chat(model="test/model", prompt="hi", temperature=0.5)
@@ -50,7 +50,8 @@ async def test_chat_budget_exceeded_after_request(httpx_mock: HTTPXMock) -> None
     )
 
     settings = Settings(
-        OPENROUTER_API_KEY="test-key", budget={"max_budget_usd": 0.05, "warn_at_fraction": 0.5}
+        OPENROUTER_API_KEY="test-key",
+        budget=BudgetConfig(max_budget_usd=0.05, warn_at_fraction=0.5),
     )
     client = RouterClient(settings)
 

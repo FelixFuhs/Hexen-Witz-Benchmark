@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
-from typing import Any, Dict, List
+import sqlite3
+from typing import Any
 
 import structlog
 
 from ..config import Settings
 from ..models import BenchmarkRecord
-
 
 logger = structlog.get_logger(__name__)
 
@@ -97,10 +96,10 @@ def upsert_record(conn: sqlite3.Connection, run_id: str, record: BenchmarkRecord
         )
 
 
-def fetch_records_for_model(conn: sqlite3.Connection, model: str) -> List[Dict[str, Any]]:
+def fetch_records_for_model(conn: sqlite3.Connection, model: str) -> list[dict[str, Any]]:
     conn.row_factory = sqlite3.Row
     rows = conn.execute("SELECT * FROM records WHERE model = ?", (model,)).fetchall()
     return [dict(row) for row in rows]
 
 
-__all__ = ["connect", "ensure_schema", "upsert_record", "fetch_records_for_model"]
+__all__ = ["connect", "ensure_schema", "fetch_records_for_model", "upsert_record"]

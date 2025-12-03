@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Any
 
 import structlog
 
@@ -13,11 +14,10 @@ from .judge import judge_and_store, load_judge_prompt
 from .models import BenchmarkRecord, GenerationResult
 from .router_client import BudgetExceededError, RouterClient
 
-
 logger = structlog.get_logger(__name__)
 
 
-async def _filter_models(settings: Settings, names: Optional[Iterable[str]]) -> List[ModelConfig]:
+async def _filter_models(settings: Settings, names: Iterable[str] | None) -> list[ModelConfig]:
     if not names:
         return list(settings.candidate_models)
     mapping = {cfg.name: cfg for cfg in settings.candidate_models}
@@ -29,14 +29,15 @@ async def _filter_models(settings: Settings, names: Optional[Iterable[str]]) -> 
 
 async def run_benchmark(
     *,
-    settings: Optional[Settings] = None,
-    run_id: Optional[str] = None,
-    model_names: Optional[Iterable[str]] = None,
+    settings: Settings | None = None,
+    run_id: str | None = None,
+    model_names: Iterable[str] | None = None,
     iterations: int = 1,
-    prompt_path: Optional[Path] = None,
-    judge_prompt_path: Optional[Path] = None,
-) -> List[BenchmarkRecord]:
-    resolved_settings = settings or Settings()
+    prompt_path: Path | None = None,
+    judge_prompt_path: Path | None = None,
+) -> list[BenchmarkRecord]:
+    # Note: OPENROUTER_API_KEY is required but typically loaded from env vars by BaseSettings
+    resolved_settings = settings or Settings()  # type: ignore[call-arg]
     current_run_id = run_id or f"run_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     prompt_path = prompt_path or Path("src/prompts/benchmark_prompt.md")
     judge_prompt_path = judge_prompt_path or Path("src/prompts/judge_checklist.md")
@@ -47,7 +48,7 @@ async def run_benchmark(
 
     client = RouterClient(resolved_settings)
     try:
-        generations: List[GenerationResult] = await run_generation_phase(
+        generations: list[GenerationResult] = await run_generation_phase(
             client=client,
             settings=resolved_settings,
             run_id=current_run_id,
@@ -56,7 +57,7 @@ async def run_benchmark(
             models=models,
         )
         template = load_judge_prompt(judge_prompt_path)
-        records: List[BenchmarkRecord] = []
+        records: list[BenchmarkRecord] = []
         for generation in generations:
             try:
                 record = await judge_and_store(
@@ -76,7 +77,7 @@ async def run_benchmark(
         await client.close()
 
 
-def run_sync(**kwargs) -> List[BenchmarkRecord]:
+def run_sync(**kwargs: Any) -> list[BenchmarkRecord]:
     return asyncio.run(run_benchmark(**kwargs))
 
 

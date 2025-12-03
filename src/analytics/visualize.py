@@ -1,15 +1,16 @@
-import structlog
-import sqlite3
+from __future__ import annotations
+
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+import sqlite3
 
 import pandas as pd
-import plotly.graph_objects as go
 import plotly.express as px
+import plotly.graph_objects as go
+import structlog
 
 logger = structlog.get_logger(__name__)
 
-def _get_db_connection(db_path_str: str) -> Optional[sqlite3.Connection]:
+def _get_db_connection(db_path_str: str) -> sqlite3.Connection | None:
     """
     Establishes a read-only connection to the SQLite database.
     """
@@ -26,13 +27,13 @@ def _get_db_connection(db_path_str: str) -> Optional[sqlite3.Connection]:
         logger.error(f"Error connecting to SQLite database {db_path_str} in read-only mode: {e}", exc_info=True)
         return None
 
-def _fetch_data_from_db(conn: sqlite3.Connection, run_id: Optional[str] = None) -> pd.DataFrame:
+def _fetch_data_from_db(conn: sqlite3.Connection, run_id: str | None = None) -> pd.DataFrame:
     """
     Fetches data from the 'records' table into a Pandas DataFrame.
     Filters by run_id if provided.
     """
     query = "SELECT * FROM records"
-    params: Optional[tuple] = None
+    params: tuple | None = None
     if run_id:
         query += " WHERE run_id = ?"
         params = (run_id,)
@@ -50,18 +51,18 @@ def _fetch_data_from_db(conn: sqlite3.Connection, run_id: Optional[str] = None) 
         return pd.DataFrame()
 
 
-def fetch_all_run_data(available_runs_with_paths: List[Tuple[str, str]]) -> pd.DataFrame:
+def fetch_all_run_data(available_runs_with_paths: list[tuple[str, str]]) -> pd.DataFrame:
     """
     Fetches data from all specified benchmark runs and concatenates them into a single DataFrame.
     """
     logger.info(f"Starting to fetch data for {len(available_runs_with_paths)} benchmark runs.")
-    all_records_dfs: List[pd.DataFrame] = []
+    all_records_dfs: list[pd.DataFrame] = []
 
     for run_id, run_dir_path_str in available_runs_with_paths:
         logger.debug(f"Processing run: {run_id} from path: {run_dir_path_str}")
         db_path = Path(run_dir_path_str) / f"{run_id}_benchmark_data.sqlite"
 
-        conn: Optional[sqlite3.Connection] = None
+        conn: sqlite3.Connection | None = None
         try:
             conn = _get_db_connection(str(db_path))
             if conn:
@@ -148,7 +149,7 @@ def calculate_global_leaderboard(all_data_df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def create_scores_boxplot(df: pd.DataFrame, score_column: str = 'gesamt', title_prefix: str = '') -> Optional[go.Figure]:
+def create_scores_boxplot(df: pd.DataFrame, score_column: str = 'gesamt', title_prefix: str = '') -> go.Figure | None:
     """
     Creates a boxplot of scores by model from the given DataFrame.
     """
@@ -184,7 +185,7 @@ def create_scores_boxplot(df: pd.DataFrame, score_column: str = 'gesamt', title_
         return None
 
 
-def create_cost_plot(cost_report_df: pd.DataFrame, title_prefix: str = '') -> Optional[go.Figure]:
+def create_cost_plot(cost_report_df: pd.DataFrame, title_prefix: str = '') -> go.Figure | None:
     """
     Creates a bar chart of total cost per model from the cost report DataFrame.
     """
@@ -240,9 +241,9 @@ def save_figure(fig: go.Figure, run_id: str, filename_base: str, base_output_dir
         fig.write_html(str(html_path))
         logger.info(f"Saved plot to {html_path}")
         try:
-            fig.write_image(str(png_path), scale=2) 
+            fig.write_image(str(png_path), scale=2)
             logger.info(f"Saved plot to {png_path}")
-        except Exception as e_img: 
+        except Exception as e_img:
             logger.error(f"Error saving plot to static image {png_path}: {e_img}. "
                          "Ensure Kaleido is installed and working correctly. HTML version might still be available.", exc_info=True)
     except Exception as e_html:

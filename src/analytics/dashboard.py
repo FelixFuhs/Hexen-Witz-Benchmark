@@ -1,23 +1,25 @@
-import logging
-import sqlite3
-from pathlib import Path
-from typing import List, Optional, Tuple
+from __future__ import annotations
 
-import streamlit as st
-from src.analytics.visualize import (
-    _get_db_connection,
-    _fetch_data_from_db,
-    create_scores_boxplot,
-    create_cost_plot,
-    fetch_all_run_data,
-    calculate_global_leaderboard
-)
+import logging
+from pathlib import Path
+import sqlite3
+
 import pandas as pd
 import plotly.express as px
+import streamlit as st
+
+from src.analytics.visualize import (
+    _fetch_data_from_db,
+    _get_db_connection,
+    calculate_global_leaderboard,
+    create_cost_plot,
+    create_scores_boxplot,
+    fetch_all_run_data,
+)
 
 logger = logging.getLogger(__name__)
 
-def get_available_run_ids(base_benchmark_dir_str: str = "benchmarks_output") -> List[Tuple[str, str]]:
+def get_available_run_ids(base_benchmark_dir_str: str = "benchmarks_output") -> list[tuple[str, str]]:
     """
     Scans a directory for valid benchmark run IDs and their directory paths.
     A run is considered valid if it has a corresponding SQLite database
@@ -29,7 +31,7 @@ def get_available_run_ids(base_benchmark_dir_str: str = "benchmarks_output") -> 
         logger.error(f"Base benchmark directory not found or is not a directory: {base_benchmark_dir_str}")
         return []
 
-    available_runs_with_paths: List[Tuple[str, str]] = []
+    available_runs_with_paths: list[tuple[str, str]] = []
     potential_run_dirs = [d for d in base_benchmark_dir.iterdir() if d.is_dir() and d.name.startswith("run_")]
 
     for run_dir in potential_run_dirs:
@@ -40,7 +42,7 @@ def get_available_run_ids(base_benchmark_dir_str: str = "benchmarks_output") -> 
             logger.warning(f"Database file not found for run {run_id} at {db_path}, skipping.")
             continue
 
-        conn: Optional[sqlite3.Connection] = None
+        conn: sqlite3.Connection | None = None
         try:
             conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
             logger.debug(f"Successfully connected to database for run {run_id}: {db_path}")
@@ -76,7 +78,7 @@ def get_available_run_ids(base_benchmark_dir_str: str = "benchmarks_output") -> 
     return available_runs_with_paths
 
 
-def display_global_leaderboard(available_runs_with_paths: List[Tuple[str, str]]):
+def display_global_leaderboard(available_runs_with_paths: list[tuple[str, str]]) -> None:
     """
     Fetches data from all runs, calculates a global leaderboard, and displays it.
     """
@@ -120,7 +122,7 @@ def display_global_leaderboard(available_runs_with_paths: List[Tuple[str, str]])
         st.dataframe(leaderboard_df)
 
 
-def main_dashboard():
+def main_dashboard() -> None:
     st.set_page_config(page_title="Benchmark Analytics Dashboard", layout="wide")
     st.title("Benchmark Analytics Dashboard")
 

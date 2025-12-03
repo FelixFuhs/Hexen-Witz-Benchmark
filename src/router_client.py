@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import time
 from collections import defaultdict, deque
-from typing import Deque, Dict, Optional
+import time
 
 import anyio
 import httpx
@@ -10,7 +9,6 @@ import structlog
 
 from .config import Settings
 from .models import OpenRouterResponse
-
 
 logger = structlog.get_logger(__name__)
 
@@ -31,7 +29,7 @@ class ParseError(RouterClientError):
     """Raised when the JSON payload could not be parsed."""
 
 
-class ConnectionError(RouterClientError):
+class RouterConnectionError(RouterClientError):
     """Raised when network connectivity fails for too long."""
 
 
@@ -56,10 +54,10 @@ class RouterClient:
         self._client = httpx.AsyncClient(
             base_url=settings.http.base_url, timeout=timeout, headers=headers
         )
-        self._model_semaphores: Dict[str, anyio.Semaphore] = defaultdict(
+        self._model_semaphores: dict[str, anyio.Semaphore] = defaultdict(
             lambda: anyio.Semaphore(settings.rate_limit.per_model_concurrency)
         )
-        self._global_window: Deque[float] = deque()
+        self._global_window: deque[float] = deque()
         self._global_limit = settings.rate_limit.global_requests_per_minute
         self._cumulative_cost = 0.0
         self._window_lock = anyio.Lock()
@@ -85,7 +83,7 @@ class RouterClient:
                 sleep_for = self._global_window[0] + 60.0 - now
             await anyio.sleep(max(sleep_for, 0.0))
 
-    def _price_for_model(self, model: str) -> Optional[float]:
+    def _price_for_model(self, model: str) -> float | None:
         return self._settings.price_overrides.get(model)
 
     async def _calculate_cost(
@@ -121,9 +119,9 @@ class RouterClient:
             max_attempts = 10
             rate_limit_attempts = 0
             server_attempts = 0
-            connection_started_at: Optional[float] = None
+            connection_started_at: float | None = None
 
-            for attempt in range(1, max_attempts + 1):
+            for _ in range(1, max_attempts + 1):
                 await self._respect_global_rate_limit()
                 try:
                     response = await self._client.post("/chat/completions", json=payload)
@@ -131,7 +129,7 @@ class RouterClient:
                     now = time.monotonic()
                     connection_started_at = connection_started_at or now
                     if now - connection_started_at > 30.0:
-                        raise ConnectionError("connection retry budget exhausted") from exc
+                        raise RouterConnectionError("connection retry budget exhausted") from exc
                     await anyio.sleep(2.0)
                     continue
 
